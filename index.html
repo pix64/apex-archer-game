@@ -4,11 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Smart QR Attendance System</title>
+    
+    <!-- External Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
-
-    <!-- Instant Real-Time Cross-Device Sync (MQTT over WebSocket) -->
     <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
 
     <style>
         * {
@@ -32,7 +34,7 @@
         .app-card {
             background: #1e293b;
             width: 100%;
-            max-width: 420px;
+            max-width: 440px;
             border-radius: 20px;
             box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5);
             padding: 20px;
@@ -81,20 +83,20 @@
         }
 
         .form-group {
-            margin-bottom: 14px;
+            margin-bottom: 12px;
         }
 
         .form-group label {
             display: block;
-            margin-bottom: 6px;
-            font-size: 13px;
+            margin-bottom: 5px;
+            font-size: 12px;
             color: #cbd5e1;
             font-weight: 600;
         }
 
         .form-group input {
             width: 100%;
-            padding: 12px;
+            padding: 10px 12px;
             border: 1px solid #334155;
             border-radius: 10px;
             font-size: 14px;
@@ -105,7 +107,7 @@
 
         .submit-btn {
             width: 100%;
-            padding: 14px;
+            padding: 12px;
             background: #2563eb;
             border: none;
             color: #ffffff;
@@ -114,6 +116,19 @@
             border-radius: 10px;
             cursor: pointer;
             margin-top: 6px;
+        }
+
+        .download-btn {
+            background: #059669;
+            color: white;
+            border: none;
+            padding: 10px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+            width: 100%;
+            margin-top: 10px;
         }
 
         .view-section {
@@ -144,9 +159,10 @@
             padding: 10px 14px;
             border-radius: 10px;
             margin-bottom: 16px;
-            font-size: 13px;
+            font-size: 12px;
             display: flex;
             justify-content: space-between;
+            align-items: center;
         }
 
         .logout-btn {
@@ -234,12 +250,12 @@
             width: 100%;
             border-collapse: collapse;
             margin-top: 12px;
-            font-size: 12px;
+            font-size: 11px;
         }
 
         .attendance-table th, .attendance-table td {
             border: 1px solid #334155;
-            padding: 10px;
+            padding: 8px;
             text-align: center;
         }
 
@@ -248,16 +264,14 @@
             color: #38bdf8;
         }
 
-        .badge-present {
-            color: #4ade80;
-            font-weight: 700;
-        }
+        .badge-present { color: #4ade80; font-weight: 700; }
+        .badge-absent { color: #f87171; font-weight: 700; }
 
         .clear-btn {
             background: #ef4444;
             color: white;
             border: none;
-            padding: 6px 12px;
+            padding: 4px 8px;
             border-radius: 6px;
             font-size: 11px;
             font-weight: 700;
@@ -275,8 +289,12 @@
             margin-right: 4px;
         }
 
-        .status-dot.online {
-            background-color: #22c55e;
+        .status-dot.online { background-color: #22c55e; }
+        
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
         }
     </style>
 </head>
@@ -298,7 +316,11 @@
 
         <form onsubmit="handleLogin(event)">
             <div class="form-group">
-                <label id="username-label">Roll Number</label>
+                <label>Full Name</label>
+                <input type="text" id="user-fullname" placeholder="Enter Full Name" required>
+            </div>
+            <div class="form-group">
+                <label id="id-label">Roll Number</label>
                 <input type="text" id="username" placeholder="Enter Roll Number" required>
             </div>
             <div class="form-group">
@@ -313,7 +335,10 @@
     <!-- STUDENT VIEW -->
     <div id="student-view" class="view-section">
         <div class="user-info-bar">
-            <span>Student: <strong id="student-display-id"></strong></span>
+            <div>
+                <strong id="student-display-name"></strong><br>
+                <span style="color: #94a3b8;">Roll: <span id="student-display-id"></span></span>
+            </div>
             <button type="button" class="logout-btn" onclick="logout()">Logout</button>
         </div>
 
@@ -343,7 +368,10 @@
     <!-- TEACHER VIEW -->
     <div id="teacher-view" class="view-section">
         <div class="user-info-bar">
-            <span>Teacher: <strong id="teacher-display-id"></strong></span>
+            <div>
+                <strong id="teacher-display-name"></strong><br>
+                <span style="color: #94a3b8;">Emp ID: <span id="teacher-display-id"></span></span>
+            </div>
             <button type="button" class="logout-btn" onclick="logout()">Logout</button>
         </div>
 
@@ -353,9 +381,18 @@
         </div>
 
         <form onsubmit="handleGenerateQR(event)">
-            <div class="form-group"><label>Subject Code</label><input type="text" id="subject-code" placeholder="e.g. CS3491" required></div>
-            <div class="form-group"><label>Section</label><input type="text" id="class-section" placeholder="e.g. A" required></div>
-            <div class="form-group"><label>Period</label><input type="number" id="period" min="1" max="8" required></div>
+            <div class="grid-2">
+                <div class="form-group"><label>Class</label><input type="text" id="class-name" placeholder="e.g. III CSE" required></div>
+                <div class="form-group"><label>Section</label><input type="text" id="class-section" placeholder="e.g. A" required></div>
+            </div>
+            <div class="grid-2">
+                <div class="form-group"><label>Subject</label><input type="text" id="subject-name" placeholder="e.g. DBMS" required></div>
+                <div class="form-group"><label>Subject Code</label><input type="text" id="subject-code" placeholder="e.g. CS3491" required></div>
+            </div>
+            <div class="grid-2">
+                <div class="form-group"><label>Topic</label><input type="text" id="topic-name" placeholder="e.g. Normalization" required></div>
+                <div class="form-group"><label>Period</label><input type="number" id="period" min="1" max="8" required></div>
+            </div>
             <button type="submit" class="submit-btn" style="background: #16a34a;">Generate QR</button>
         </form>
 
@@ -363,32 +400,34 @@
             <div id="qr-code-container" style="display: flex; justify-content: center; background: #fff; padding: 12px; border-radius: 12px; margin: 0 auto; width: fit-content;"></div>
             
             <div style="overflow: hidden; margin-top: 16px; margin-bottom: 8px;">
-                <h3 style="float: left; font-size: 14px; color: #cbd5e1;">Live Attendance Roster:</h3>
+                <h3 style="float: left; font-size: 13px; color: #cbd5e1;">Live Attendance Roster:</h3>
                 <button type="button" class="clear-btn" onclick="clearRoster()">Clear Session</button>
             </div>
 
             <table class="attendance-table">
-                <thead><tr><th>Roll No</th><th>Time</th><th>Status</th></tr></thead>
+                <thead><tr><th>Roll No</th><th>Student Name</th><th>Status</th></tr></thead>
                 <tbody id="attendance-roster-body">
                     <tr><td colspan="3" style="color: #64748b;">Waiting for student scans...</td></tr>
                 </tbody>
             </table>
+
+            <button type="button" class="download-btn" onclick="downloadPDF()">Download Attendance PDF</button>
         </div>
     </div>
 
 </div>
 
 <script>
-    // ------------------------------------------------------------------
-    // FREE REAL-TIME WEBSOCKET SYNC (Works across mobile phone & laptop)
-    // ------------------------------------------------------------------
+    // MQTT WebSocket Configuration
     const MQTT_TOPIC = "kcet/qr_attendance_system_sync_channel";
     const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
 
     let attendanceRecords = [];
     let currentRole = 'student';
     let loggedInUser = '';
+    let loggedInName = '';
     let html5QrCode = null;
+    let classDetails = {};
 
     client.on('connect', () => {
         const dot = document.getElementById('sync-dot');
@@ -420,11 +459,12 @@
         currentRole = role;
         document.getElementById('btn-role-student').classList.toggle('active', role === 'student');
         document.getElementById('btn-role-teacher').classList.toggle('active', role === 'teacher');
-        document.getElementById('username-label').innerText = role === 'student' ? 'Roll Number' : 'Employee ID';
+        document.getElementById('id-label').innerText = role === 'student' ? 'Roll Number' : 'Employee ID';
     }
 
     function handleLogin(e) {
         e.preventDefault();
+        loggedInName = document.getElementById('user-fullname').value.trim();
         const user = document.getElementById('username').value.trim();
         const pass = document.getElementById('password').value.trim();
         const alertBox = document.getElementById('login-alert');
@@ -432,6 +472,7 @@
         if (currentRole === 'student') {
             if (pass === user) {
                 loggedInUser = user;
+                document.getElementById('student-display-name').innerText = loggedInName;
                 document.getElementById('student-display-id').innerText = user;
                 switchView('student-view');
             } else {
@@ -440,6 +481,7 @@
         } else {
             if (pass.endsWith(`@${user}`)) {
                 loggedInUser = user;
+                document.getElementById('teacher-display-name').innerText = loggedInName;
                 document.getElementById('teacher-display-id').innerText = user;
                 switchView('teacher-view');
                 renderRosterTable();
@@ -488,7 +530,7 @@
 
         } catch (err) {
             console.error(err);
-            showAlert(studentAlert, 'Camera Permission Error: Allow camera access in browser site settings and reload.', 'error');
+            showAlert(studentAlert, 'Camera Permission Error: Allow camera access and reload.', 'error');
         }
     }
 
@@ -496,17 +538,14 @@
         const studentAlert = document.getElementById('student-alert');
         if (decodedText && decodedText.startsWith("ATTEND|")) {
             
-            const timeStr = new Date().toLocaleTimeString();
             const payload = {
                 type: 'ATTENDANCE',
                 rollNo: loggedInUser,
-                time: timeStr,
+                name: loggedInName,
                 status: 'PRESENT'
             };
 
-            // Broadcast attendance to Teacher screen over WebSocket
             client.publish(MQTT_TOPIC, JSON.stringify(payload));
-
             showAlert(studentAlert, 'Attendance Marked Successfully!', 'success');
 
             if (html5QrCode) {
@@ -523,30 +562,43 @@
 
     function handleGenerateQR(e) {
         e.preventDefault();
-        const code = document.getElementById('subject-code').value;
-        const sec = document.getElementById('class-section').value;
-        const period = document.getElementById('period').value;
+        classDetails = {
+            className: document.getElementById('class-name').value,
+            section: document.getElementById('class-section').value,
+            subject: document.getElementById('subject-name').value,
+            subjectCode: document.getElementById('subject-code').value,
+            topic: document.getElementById('topic-name').value,
+            period: document.getElementById('period').value
+        };
 
         const qrContainer = document.getElementById('qr-code-container');
         qrContainer.innerHTML = '';
-        new QRCode(qrContainer, { text: `ATTEND|${code}|${sec}|P${period}`, width: 180, height: 180 });
+        new QRCode(qrContainer, { text: `ATTEND|${classDetails.subjectCode}|${classDetails.section}|P${classDetails.period}`, width: 180, height: 180 });
         document.getElementById('qr-output').style.display = 'block';
         renderRosterTable();
+    }
+
+    function getSortedRecords() {
+        return [...attendanceRecords].sort((a, b) => {
+            return a.rollNo.localeCompare(b.rollNo, undefined, { numeric: true, sensitivity: 'base' });
+        });
     }
 
     function renderRosterTable() {
         const rosterBody = document.getElementById('attendance-roster-body');
         if (!rosterBody) return;
 
-        if (attendanceRecords.length === 0) {
+        const sorted = getSortedRecords();
+
+        if (sorted.length === 0) {
             rosterBody.innerHTML = '<tr><td colspan="3" style="color: #64748b;">Waiting for student scans...</td></tr>';
             return;
         }
 
-        rosterBody.innerHTML = attendanceRecords.map(item => `
+        rosterBody.innerHTML = sorted.map(item => `
             <tr>
                 <td><strong>${item.rollNo}</strong></td>
-                <td>${item.time}</td>
+                <td>${item.name}</td>
                 <td class="badge-present">${item.status}</td>
             </tr>
         `).join('');
@@ -556,6 +608,54 @@
         if (confirm("Clear attendance list for this session?")) {
             client.publish(MQTT_TOPIC, JSON.stringify({ type: 'CLEAR' }));
         }
+    }
+
+    function downloadPDF() {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+
+        const sorted = getSortedRecords();
+        const presentCount = sorted.length;
+
+        // Title
+        doc.setFontSize(16);
+        doc.text("CLASS ATTENDANCE REPORT", 14, 15);
+
+        // Header Metadata
+        doc.setFontSize(10);
+        doc.text(`Class - Section: ${classDetails.className || 'N/A'} - ${classDetails.section || 'N/A'}`, 14, 25);
+        doc.text(`Period: Period ${classDetails.period || 'N/A'}`, 120, 25);
+        
+        doc.text(`Subject: ${classDetails.subject || 'N/A'} (${classDetails.subjectCode || 'N/A'})`, 14, 32);
+        doc.text(`Topic: ${classDetails.topic || 'N/A'}`, 120, 32);
+
+        doc.text(`Faculty Name: ${loggedInName} (ID: ${loggedInUser})`, 14, 39);
+        doc.text(`Total Students Present: ${presentCount}`, 120, 39);
+
+        // Table Data Preparation
+        const tableBody = sorted.map((item, index) => [
+            index + 1,
+            item.rollNo,
+            item.name,
+            item.status
+        ]);
+
+        // Generate Table
+        doc.autoTable({
+            startY: 45,
+            head: [['S.No', 'Roll Number', 'Student Name', 'Status']],
+            body: tableBody,
+            theme: 'grid',
+            headStyles: { fillColor: [37, 99, 235] },
+            columnStyles: {
+                0: { cellWidth: 20 },
+                1: { cellWidth: 40 },
+                2: { cellWidth: 90 },
+                3: { cellWidth: 30 }
+            }
+        });
+
+        doc.save(`Attendance_${classDetails.subjectCode || 'Session'}_P${classDetails.period || '1'}.pdf`);
     }
 
     function switchView(viewId) {
