@@ -239,6 +239,16 @@
             padding: 10px;
             text-align: center;
         }
+
+        .attendance-table th {
+            background: #0f172a;
+            color: #38bdf8;
+        }
+
+        .badge-present {
+            color: #4ade80;
+            font-weight: 700;
+        }
     </style>
 </head>
 <body>
@@ -322,9 +332,13 @@
 
         <div id="qr-output" style="display: none; text-align: center; margin-top: 16px;">
             <div id="qr-code-container" style="display: flex; justify-content: center; background: #fff; padding: 12px; border-radius: 12px; margin: 0 auto; width: fit-content;"></div>
+            
+            <h3 style="margin-top: 16px; font-size: 14px; text-align: left; color: #cbd5e1;">Live Attendance Roster:</h3>
             <table class="attendance-table">
                 <thead><tr><th>Roll No</th><th>Time</th><th>Status</th></tr></thead>
-                <tbody id="attendance-roster-body"></tbody>
+                <tbody id="attendance-roster-body">
+                    <tr><td colspan="3" style="color: #64748b;">Waiting for student scans...</td></tr>
+                </tbody>
             </table>
         </div>
     </div>
@@ -362,6 +376,7 @@
                 loggedInUser = user;
                 document.getElementById('teacher-display-id').innerText = user;
                 switchView('teacher-view');
+                loadRoster();
             } else {
                 showAlert(alertBox, 'Use format: [Year]@[ID]');
             }
@@ -372,7 +387,6 @@
         const studentAlert = document.getElementById('student-alert');
         const scannerWrapper = document.getElementById('scanner-wrapper');
 
-        // Check for local file execution protocols
         if (window.location.protocol === 'file:' || window.location.protocol === 'content:') {
             showAlert(studentAlert, 'Local file mode detected! Mobile browsers block camera permissions on local files. Please run via Live Server (http://) or host online.', 'error');
             return;
@@ -381,10 +395,9 @@
         showAlert(studentAlert, 'Requesting camera permission...', 'info');
 
         try {
-            // First trigger explicit browser permission popup
             if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
                 const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-                stream.getTracks().forEach(track => track.stop()); // Stop preview stream
+                stream.getTracks().forEach(track => track.stop());
             }
 
             if (html5QrCode) {
@@ -396,7 +409,6 @@
 
             const cameraConfig = { fps: 15, qrbox: { width: 200, height: 200 } };
 
-            // Request environment camera first, then fallback to standard
             await html5QrCode.start(
                 { facingMode: "environment" },
                 cameraConfig,
@@ -422,7 +434,21 @@
     function onScanSuccess(decodedText) {
         const studentAlert = document.getElementById('student-alert');
         if (decodedText && decodedText.startsWith("ATTEND|")) {
+            
+            // 1. Save scan record in localStorage
+            const timeStr = new Date().toLocaleTimeString();
+            const newRecord = { rollNo: loggedInUser, time: timeStr, status: 'PRESENT' };
+            
+            let roster = JSON.parse(localStorage.getItem('attendanceRoster') || '[]');
+            
+            // Prevent duplicate entries for the same student
+            if (!roster.some(item => item.rollNo === loggedInUser)) {
+                roster.push(newRecord);
+                localStorage.setItem('attendanceRoster', JSON.stringify(roster));
+            }
+
             showAlert(studentAlert, 'Attendance Marked Successfully!', 'success');
+            
             if (html5QrCode) {
                 html5QrCode.stop().then(() => {
                     document.getElementById('scanner-wrapper').style.display = 'none';
@@ -445,7 +471,33 @@
         qrContainer.innerHTML = '';
         new QRCode(qrContainer, { text: `ATTEND|${code}|${sec}|P${period}`, width: 180, height: 180 });
         document.getElementById('qr-output').style.display = 'block';
+        loadRoster();
     }
+
+    function loadRoster() {
+        const rosterBody = document.getElementById('attendance-roster-body');
+        const roster = JSON.parse(localStorage.getItem('attendanceRoster') || '[]');
+
+        if (roster.length === 0) {
+            rosterBody.innerHTML = '<tr><td colspan="3" style="color: #64748b;">Waiting for student scans...</td></tr>';
+            return;
+        }
+
+        rosterBody.innerHTML = roster.map(item => `
+            <tr>
+                <td><strong>${item.rollNo}</strong></td>
+                <td>${item.time}</td>
+                <td class="badge-present">${item.status}</td>
+            </tr>
+        `).join('');
+    }
+
+    // Auto update teacher table across tabs/windows in real-time
+    window.addEventListener('storage', (e) => {
+        if (e.key === 'attendanceRoster') {
+            loadRoster();
+        }
+    });
 
     function switchView(viewId) {
         document.querySelectorAll('.view-section').forEach(v => v.classList.remove('active'));
