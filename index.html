@@ -7,9 +7,8 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
 
-    <!-- Firebase SDKs -->
-    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+    <!-- Instant Real-Time Cross-Device Sync (MQTT over WebSocket) -->
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
 
     <style>
         * {
@@ -266,6 +265,19 @@
             float: right;
             margin-top: 10px;
         }
+
+        .status-dot {
+            height: 8px;
+            width: 8px;
+            background-color: #ef4444;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 4px;
+        }
+
+        .status-dot.online {
+            background-color: #22c55e;
+        }
     </style>
 </head>
 <body>
@@ -337,7 +349,7 @@
 
         <div class="header">
             <h2>Create Class QR</h2>
-            <p>Generate QR for attendance</p>
+            <p><span class="status-dot" id="sync-dot"></span><span id="sync-status">Connecting Live Sync...</span></p>
         </div>
 
         <form onsubmit="handleGenerateQR(event)">
@@ -367,22 +379,42 @@
 </div>
 
 <script>
-    // -------------------------------------------------------------
-    // 1. PUBLIC DEMO FIREBASE CONFIG (Multi-Device Sync via Cloud)
-    // -------------------------------------------------------------
-    const firebaseConfig = {
-        databaseURL: "https://qr-attendance-live-default-rtdb.firebaseio.com/"
-    };
-    
-    // Initialize Firebase
-    if (!firebase.apps.length) {
-        firebase.initializeApp(firebaseConfig);
-    }
-    const db = firebase.database();
+    // ------------------------------------------------------------------
+    // FREE REAL-TIME WEBSOCKET SYNC (Works across mobile phone & laptop)
+    // ------------------------------------------------------------------
+    const MQTT_TOPIC = "kcet/qr_attendance_system_sync_channel";
+    const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
 
+    let attendanceRecords = [];
     let currentRole = 'student';
     let loggedInUser = '';
     let html5QrCode = null;
+
+    client.on('connect', () => {
+        const dot = document.getElementById('sync-dot');
+        const status = document.getElementById('sync-status');
+        if (dot) dot.classList.add('online');
+        if (status) status.innerText = 'Live Sync Ready';
+        client.subscribe(MQTT_TOPIC);
+    });
+
+    client.on('message', (topic, message) => {
+        if (topic === MQTT_TOPIC) {
+            try {
+                const data = JSON.parse(message.toString());
+                if (data.type === 'CLEAR') {
+                    attendanceRecords = [];
+                } else if (data.type === 'ATTENDANCE') {
+                    if (!attendanceRecords.some(r => r.rollNo === data.rollNo)) {
+                        attendanceRecords.push(data);
+                    }
+                }
+                renderRosterTable();
+            } catch(e) {
+                console.error(e);
+            }
+        }
+    });
 
     function setRole(role) {
         currentRole = role;
@@ -410,7 +442,7 @@
                 loggedInUser = user;
                 document.getElementById('teacher-display-id').innerText = user;
                 switchView('teacher-view');
-                listenToLiveRoster();
+                renderRosterTable();
             } else {
                 showAlert(alertBox, 'Use format: [Year]@[ID]');
             }
@@ -420,11 +452,6 @@
     async function startScanner() {
         const studentAlert = document.getElementById('student-alert');
         const scannerWrapper = document.getElementById('scanner-wrapper');
-
-        if (window.location.protocol === 'file:' || window.location.protocol === 'content:') {
-            showAlert(studentAlert, 'Local file mode detected! Please run via Live Server (http://) or open hosted URL.', 'error');
-            return;
-        }
 
         showAlert(studentAlert, 'Requesting camera permission...', 'info');
 
@@ -460,7 +487,7 @@
             showAlert(studentAlert, 'Scanner active! Align QR inside target box.', 'info');
 
         } catch (err) {
-            console.error("Camera launch error:", err);
+            console.error(err);
             showAlert(studentAlert, 'Camera Permission Error: Allow camera access in browser site settings and reload.', 'error');
         }
     }
@@ -470,19 +497,17 @@
         if (decodedText && decodedText.startsWith("ATTEND|")) {
             
             const timeStr = new Date().toLocaleTimeString();
-            const safeRollNo = loggedInUser.replace(/[\.\#\$\[\]]/g, "_"); // Firebase key sanitization
-            
-            // Push attendance record live to Firebase cloud database
-            db.ref('attendance/' + safeRollNo).set({
+            const payload = {
+                type: 'ATTENDANCE',
                 rollNo: loggedInUser,
                 time: timeStr,
                 status: 'PRESENT'
-            }).then(() => {
-                showAlert(studentAlert, 'Attendance Marked Successfully!', 'success');
-            }).catch((err) => {
-                console.error("Firebase write error:", err);
-                showAlert(studentAlert, 'Scan successful, but cloud sync failed.', 'error');
-            });
+            };
+
+            // Broadcast attendance to Teacher screen over WebSocket
+            client.publish(MQTT_TOPIC, JSON.stringify(payload));
+
+            showAlert(studentAlert, 'Attendance Marked Successfully!', 'success');
 
             if (html5QrCode) {
                 html5QrCode.stop().then(() => {
@@ -506,34 +531,30 @@
         qrContainer.innerHTML = '';
         new QRCode(qrContainer, { text: `ATTEND|${code}|${sec}|P${period}`, width: 180, height: 180 });
         document.getElementById('qr-output').style.display = 'block';
-        listenToLiveRoster();
+        renderRosterTable();
     }
 
-    // Real-time listener for multi-device sync
-    function listenToLiveRoster() {
+    function renderRosterTable() {
         const rosterBody = document.getElementById('attendance-roster-body');
+        if (!rosterBody) return;
 
-        db.ref('attendance').on('value', (snapshot) => {
-            const data = snapshot.val();
-            if (!data) {
-                rosterBody.innerHTML = '<tr><td colspan="3" style="color: #64748b;">Waiting for student scans...</td></tr>';
-                return;
-            }
+        if (attendanceRecords.length === 0) {
+            rosterBody.innerHTML = '<tr><td colspan="3" style="color: #64748b;">Waiting for student scans...</td></tr>';
+            return;
+        }
 
-            const records = Object.values(data);
-            rosterBody.innerHTML = records.map(item => `
-                <tr>
-                    <td><strong>${item.rollNo}</strong></td>
-                    <td>${item.time}</td>
-                    <td class="badge-present">${item.status}</td>
-                </tr>
-            `).join('');
-        });
+        rosterBody.innerHTML = attendanceRecords.map(item => `
+            <tr>
+                <td><strong>${item.rollNo}</strong></td>
+                <td>${item.time}</td>
+                <td class="badge-present">${item.status}</td>
+            </tr>
+        `).join('');
     }
 
     function clearRoster() {
         if (confirm("Clear attendance list for this session?")) {
-            db.ref('attendance').remove();
+            client.publish(MQTT_TOPIC, JSON.stringify({ type: 'CLEAR' }));
         }
     }
 
