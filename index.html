@@ -7,6 +7,10 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
 
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
     <style>
         * {
             box-sizing: border-box;
@@ -249,13 +253,26 @@
             color: #4ade80;
             font-weight: 700;
         }
+
+        .clear-btn {
+            background: #ef4444;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 700;
+            cursor: pointer;
+            float: right;
+            margin-top: 10px;
+        }
     </style>
 </head>
 <body>
 
 <div class="app-card">
 
-    <!-- LOGIN SECTION -->
+    <!-- LOGIN VIEW -->
     <div id="login-view" class="view-section active">
         <div class="header">
             <h2>Attendance Portal</h2>
@@ -333,7 +350,11 @@
         <div id="qr-output" style="display: none; text-align: center; margin-top: 16px;">
             <div id="qr-code-container" style="display: flex; justify-content: center; background: #fff; padding: 12px; border-radius: 12px; margin: 0 auto; width: fit-content;"></div>
             
-            <h3 style="margin-top: 16px; font-size: 14px; text-align: left; color: #cbd5e1;">Live Attendance Roster:</h3>
+            <div style="overflow: hidden; margin-top: 16px; margin-bottom: 8px;">
+                <h3 style="float: left; font-size: 14px; color: #cbd5e1;">Live Attendance Roster:</h3>
+                <button type="button" class="clear-btn" onclick="clearRoster()">Clear Session</button>
+            </div>
+
             <table class="attendance-table">
                 <thead><tr><th>Roll No</th><th>Time</th><th>Status</th></tr></thead>
                 <tbody id="attendance-roster-body">
@@ -346,6 +367,19 @@
 </div>
 
 <script>
+    // -------------------------------------------------------------
+    // 1. PUBLIC DEMO FIREBASE CONFIG (Multi-Device Sync via Cloud)
+    // -------------------------------------------------------------
+    const firebaseConfig = {
+        databaseURL: "https://qr-attendance-live-default-rtdb.firebaseio.com/"
+    };
+    
+    // Initialize Firebase
+    if (!firebase.apps.length) {
+        firebase.initializeApp(firebaseConfig);
+    }
+    const db = firebase.database();
+
     let currentRole = 'student';
     let loggedInUser = '';
     let html5QrCode = null;
@@ -376,7 +410,7 @@
                 loggedInUser = user;
                 document.getElementById('teacher-display-id').innerText = user;
                 switchView('teacher-view');
-                loadRoster();
+                listenToLiveRoster();
             } else {
                 showAlert(alertBox, 'Use format: [Year]@[ID]');
             }
@@ -388,7 +422,7 @@
         const scannerWrapper = document.getElementById('scanner-wrapper');
 
         if (window.location.protocol === 'file:' || window.location.protocol === 'content:') {
-            showAlert(studentAlert, 'Local file mode detected! Mobile browsers block camera permissions on local files. Please run via Live Server (http://) or host online.', 'error');
+            showAlert(studentAlert, 'Local file mode detected! Please run via Live Server (http://) or open hosted URL.', 'error');
             return;
         }
 
@@ -435,20 +469,21 @@
         const studentAlert = document.getElementById('student-alert');
         if (decodedText && decodedText.startsWith("ATTEND|")) {
             
-            // 1. Save scan record in localStorage
             const timeStr = new Date().toLocaleTimeString();
-            const newRecord = { rollNo: loggedInUser, time: timeStr, status: 'PRESENT' };
+            const safeRollNo = loggedInUser.replace(/[\.\#\$\[\]]/g, "_"); // Firebase key sanitization
             
-            let roster = JSON.parse(localStorage.getItem('attendanceRoster') || '[]');
-            
-            // Prevent duplicate entries for the same student
-            if (!roster.some(item => item.rollNo === loggedInUser)) {
-                roster.push(newRecord);
-                localStorage.setItem('attendanceRoster', JSON.stringify(roster));
-            }
+            // Push attendance record live to Firebase cloud database
+            db.ref('attendance/' + safeRollNo).set({
+                rollNo: loggedInUser,
+                time: timeStr,
+                status: 'PRESENT'
+            }).then(() => {
+                showAlert(studentAlert, 'Attendance Marked Successfully!', 'success');
+            }).catch((err) => {
+                console.error("Firebase write error:", err);
+                showAlert(studentAlert, 'Scan successful, but cloud sync failed.', 'error');
+            });
 
-            showAlert(studentAlert, 'Attendance Marked Successfully!', 'success');
-            
             if (html5QrCode) {
                 html5QrCode.stop().then(() => {
                     document.getElementById('scanner-wrapper').style.display = 'none';
@@ -471,33 +506,36 @@
         qrContainer.innerHTML = '';
         new QRCode(qrContainer, { text: `ATTEND|${code}|${sec}|P${period}`, width: 180, height: 180 });
         document.getElementById('qr-output').style.display = 'block';
-        loadRoster();
+        listenToLiveRoster();
     }
 
-    function loadRoster() {
+    // Real-time listener for multi-device sync
+    function listenToLiveRoster() {
         const rosterBody = document.getElementById('attendance-roster-body');
-        const roster = JSON.parse(localStorage.getItem('attendanceRoster') || '[]');
 
-        if (roster.length === 0) {
-            rosterBody.innerHTML = '<tr><td colspan="3" style="color: #64748b;">Waiting for student scans...</td></tr>';
-            return;
-        }
+        db.ref('attendance').on('value', (snapshot) => {
+            const data = snapshot.val();
+            if (!data) {
+                rosterBody.innerHTML = '<tr><td colspan="3" style="color: #64748b;">Waiting for student scans...</td></tr>';
+                return;
+            }
 
-        rosterBody.innerHTML = roster.map(item => `
-            <tr>
-                <td><strong>${item.rollNo}</strong></td>
-                <td>${item.time}</td>
-                <td class="badge-present">${item.status}</td>
-            </tr>
-        `).join('');
+            const records = Object.values(data);
+            rosterBody.innerHTML = records.map(item => `
+                <tr>
+                    <td><strong>${item.rollNo}</strong></td>
+                    <td>${item.time}</td>
+                    <td class="badge-present">${item.status}</td>
+                </tr>
+            `).join('');
+        });
     }
 
-    // Auto update teacher table across tabs/windows in real-time
-    window.addEventListener('storage', (e) => {
-        if (e.key === 'attendanceRoster') {
-            loadRoster();
+    function clearRoster() {
+        if (confirm("Clear attendance list for this session?")) {
+            db.ref('attendance').remove();
         }
-    });
+    }
 
     function switchView(viewId) {
         document.querySelectorAll('.view-section').forEach(v => v.classList.remove('active'));
