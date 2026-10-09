@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Smart Anti-Proxy QR Attendance System</title>
     
-    <!-- External Libraries -->
+    <!-- External Dependencies -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
@@ -34,7 +34,7 @@
         .app-card {
             background: #1e293b;
             width: 100%;
-            max-width: 440px;
+            max-width: 460px;
             border-radius: 20px;
             box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5);
             padding: 20px;
@@ -75,6 +75,7 @@
             font-weight: 600;
             font-size: 14px;
             cursor: pointer;
+            transition: all 0.2s ease;
         }
 
         .role-btn.active {
@@ -116,6 +117,11 @@
             border-radius: 10px;
             cursor: pointer;
             margin-top: 6px;
+            transition: background 0.2s ease;
+        }
+
+        .submit-btn:hover {
+            background: #1d4ed8;
         }
 
         .download-btn {
@@ -129,6 +135,10 @@
             cursor: pointer;
             width: 100%;
             margin-top: 10px;
+        }
+
+        .download-btn:hover {
+            background: #047857;
         }
 
         .view-section {
@@ -434,7 +444,7 @@
 </div>
 
 <script>
-    const MQTT_TOPIC = "kcet/qr_attendance_system_live_v9";
+    const MQTT_TOPIC = "kcet/qr_attendance_system_live_v10";
     const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
 
     let attendanceRecords = [];
@@ -455,6 +465,7 @@
         client.subscribe(MQTT_TOPIC);
     });
 
+    // Real-time synchronization event handler
     client.on('message', (topic, message) => {
         if (topic === MQTT_TOPIC) {
             try {
@@ -462,13 +473,14 @@
                 if (data.type === 'CLEAR') {
                     attendanceRecords = [];
                 } else if (data.type === 'ATTENDANCE') {
+                    // Prevent duplicate roll numbers in teacher roster
                     if (!attendanceRecords.some(r => r.rollNo === data.rollNo)) {
                         attendanceRecords.push(data);
                     }
                 }
                 renderRosterTable();
             } catch(e) {
-                console.error(e);
+                console.error("MQTT Message Error:", e);
             }
         }
     });
@@ -556,7 +568,7 @@
         const studentAlert = document.getElementById('student-alert');
         
         try {
-            // PAYLOAD: ATTEND|SubCode|Sec|Period|TimestampMS
+            // EXPECTED PAYLOAD: ATTEND|SubCode|Sec|Period|TimestampMS
             const parts = decodedText.split('|');
             if (parts.length === 5 && parts[0] === 'ATTEND') {
                 const [_, subCode, sec, period, qrTimeStr] = parts;
@@ -567,7 +579,7 @@
                 const sessionId = `${subCode}_${sec}_${period}`;
                 const deviceLock = localStorage.getItem(DEVICE_SCAN_LOCK);
 
-                // 1. Hardware One-Scan Lock (Prevents Proxy via Logging Out & Changing Roll Number)
+                // 1. Check Hardware One-Scan Lock for this session
                 if (deviceLock === sessionId) {
                     showAlert(studentAlert, '❌ DEVICE LOCK: Attendance already submitted from this phone for this session!', 'error');
                     if (html5QrCode) {
@@ -578,16 +590,16 @@
                     return;
                 }
 
-                // 2. Strict 1.2 Second Latency Decay Window (Kills video call transmission delay)
+                // 2. Strict 1.2s Latency Window (Blocks Video Call Feed Delays)
                 if (latency > 1200) {
                     showAlert(studentAlert, '❌ EXPIRED QR! Video call stream / screen recording detected.', 'error');
                     return;
                 }
 
-                // Lock device to current session ID
+                // Lock device locally for current session ID
                 localStorage.setItem(DEVICE_SCAN_LOCK, sessionId);
 
-                // Submit attendance
+                // Publish attendance payload over MQTT
                 const payload = {
                     type: 'ATTENDANCE',
                     rollNo: loggedInUser,
@@ -595,7 +607,7 @@
                     status: 'PRESENT'
                 };
 
-                client.publish(MQTT_TOPIC, JSON.stringify(payload));
+                client.publish(MQTT_TOPIC, JSON.stringify(payload), { qos: 0, retain: false });
                 showAlert(studentAlert, '✅ Attendance Verified (Physical Presence Confirmed)!', 'success');
 
                 if (html5QrCode) {
@@ -629,7 +641,7 @@
         if (qrRefreshInterval) clearInterval(qrRefreshInterval);
 
         updateDynamicQR();
-        // 1.0 Second Acceleration to defeat video stream delays
+        // Dynamic 1.0 second refresh cycle to render obsolete video call frames
         qrRefreshInterval = setInterval(updateDynamicQR, 1000);
     }
 
