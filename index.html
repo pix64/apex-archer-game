@@ -296,16 +296,16 @@
             gap: 10px;
         }
 
-        .pin-badge {
-            background: #38bdf8;
-            color: #0f172a;
+        .watermark-badge {
+            background: #0284c7;
+            color: #fff;
             font-weight: 800;
-            font-size: 16px;
+            font-size: 13px;
             padding: 4px 12px;
             border-radius: 8px;
             display: inline-block;
             margin-top: 8px;
-            letter-spacing: 2px;
+            letter-spacing: 1px;
         }
     </style>
 </head>
@@ -411,8 +411,8 @@
             <div id="qr-code-container" style="display: flex; justify-content: center; background: #fff; padding: 12px; border-radius: 12px; margin: 0 auto; width: fit-content;"></div>
             
             <div>
-                <span style="font-size: 12px; color: #94a3b8; display: block; margin-top: 6px;">Live Board Seed Code:</span>
-                <span class="pin-badge" id="live-seed-display">SYNCING...</span>
+                <span style="font-size: 12px; color: #94a3b8; display: block; margin-top: 6px;">Live Stream Verification Status:</span>
+                <span class="watermark-badge" id="live-seed-display">BROADCAST ACTIVE</span>
             </div>
 
             <div style="overflow: hidden; margin-top: 16px; margin-bottom: 8px;">
@@ -434,7 +434,7 @@
 </div>
 
 <script>
-    const MQTT_TOPIC = "kcet/qr_attendance_system_live_v5";
+    const MQTT_TOPIC = "kcet/qr_attendance_system_live_v7";
     const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
 
     let attendanceRecords = [];
@@ -571,13 +571,13 @@
                 const currentTimestamp = Date.now();
                 const latency = currentTimestamp - qrTimestamp;
 
-                // Time-Decay Window Check (<= 2.0 seconds)
-                if (latency > 2000) {
-                    showAlert(studentAlert, '❌ EXPIRED QR! Photos or remote video calls are rejected.', 'error');
+                // 1. Strict 1.5 Second Latency Check (Blocks video call stream transmission delays)
+                if (latency > 1500) {
+                    showAlert(studentAlert, '❌ EXPIRED QR! Video call streams / screen recordings rejected.', 'error');
                     return;
                 }
 
-                // Submit attendance
+                // Submit attendance directly without manual prompt
                 const payload = {
                     type: 'ATTENDANCE',
                     rollNo: loggedInUser,
@@ -619,7 +619,8 @@
         if (qrRefreshInterval) clearInterval(qrRefreshInterval);
 
         updateDynamicQR();
-        qrRefreshInterval = setInterval(updateDynamicQR, 1500);
+        // 1.2 Second High-Frequency Refresh Rate
+        qrRefreshInterval = setInterval(updateDynamicQR, 1200);
     }
 
     function updateDynamicQR() {
@@ -627,10 +628,6 @@
         qrContainer.innerHTML = '';
 
         const timestamp = Date.now();
-        const seedCode = Math.floor(10 + Math.random() * 90).toString();
-
-        document.getElementById('live-seed-display').innerText = `SEED [${seedCode}]`;
-
         const payloadStr = `ATTEND|${classDetails.subjectCode}|${classDetails.section}|P${classDetails.period}|${timestamp}`;
 
         new QRCode(qrContainer, { 
