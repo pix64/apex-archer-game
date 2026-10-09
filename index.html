@@ -434,7 +434,7 @@
 </div>
 
 <script>
-    const MQTT_TOPIC = "kcet/qr_attendance_system_live_v8";
+    const MQTT_TOPIC = "kcet/qr_attendance_system_live_v9";
     const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
 
     let attendanceRecords = [];
@@ -445,7 +445,7 @@
     let classDetails = {};
     let qrRefreshInterval = null;
 
-    const DEVICE_KEY = "device_bound_roll_number";
+    const DEVICE_SCAN_LOCK = "device_scanned_session_id";
 
     client.on('connect', () => {
         const dot = document.getElementById('sync-dot');
@@ -488,15 +488,8 @@
         const alertBox = document.getElementById('login-alert');
 
         if (currentRole === 'student') {
-            const boundUser = localStorage.getItem(DEVICE_KEY);
-            if (boundUser && boundUser !== user) {
-                showAlert(alertBox, `Device Lock: Bound to Roll No ${boundUser}. Cannot log in with another account.`);
-                return;
-            }
-
             if (pass === user) {
                 loggedInUser = user;
-                localStorage.setItem(DEVICE_KEY, user);
                 document.getElementById('student-display-name').innerText = loggedInName;
                 document.getElementById('student-display-id').innerText = user;
                 switchView('student-view');
@@ -571,13 +564,30 @@
                 const currentTimestamp = Date.now();
                 const latency = currentTimestamp - qrTimestamp;
 
-                // 1. Strict 1.2 Second Latency Decay Window (Kills video call transmission delay)
+                const sessionId = `${subCode}_${sec}_${period}`;
+                const deviceLock = localStorage.getItem(DEVICE_SCAN_LOCK);
+
+                // 1. Hardware One-Scan Lock (Prevents Proxy via Logging Out & Changing Roll Number)
+                if (deviceLock === sessionId) {
+                    showAlert(studentAlert, '❌ DEVICE LOCK: Attendance already submitted from this phone for this session!', 'error');
+                    if (html5QrCode) {
+                        html5QrCode.stop().then(() => {
+                            document.getElementById('scanner-wrapper').style.display = 'none';
+                        });
+                    }
+                    return;
+                }
+
+                // 2. Strict 1.2 Second Latency Decay Window (Kills video call transmission delay)
                 if (latency > 1200) {
                     showAlert(studentAlert, '❌ EXPIRED QR! Video call stream / screen recording detected.', 'error');
                     return;
                 }
 
-                // Submit attendance directly
+                // Lock device to current session ID
+                localStorage.setItem(DEVICE_SCAN_LOCK, sessionId);
+
+                // Submit attendance
                 const payload = {
                     type: 'ATTENDANCE',
                     rollNo: loggedInUser,
