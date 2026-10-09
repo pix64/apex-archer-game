@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Smart Anti-Proxy QR Attendance System</title>
+    <title>Bulletproof Dynamic QR Attendance System</title>
     
     <!-- External Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
@@ -300,12 +300,12 @@
             background: #0284c7;
             color: #fff;
             font-weight: 800;
-            font-size: 12px;
+            font-size: 14px;
             padding: 4px 12px;
             border-radius: 8px;
             display: inline-block;
             margin-top: 8px;
-            letter-spacing: 1px;
+            letter-spacing: 2px;
         }
     </style>
 </head>
@@ -387,7 +387,7 @@
         </div>
 
         <div class="header">
-            <h2>Anti-Proxy QR Broadcast</h2>
+            <h2>Dynamic QR Broadcast Engine</h2>
             <p><span class="status-dot" id="sync-dot"></span><span id="sync-status">Connecting Live Sync...</span></p>
         </div>
 
@@ -411,8 +411,8 @@
             <div id="qr-code-container" style="display: flex; justify-content: center; background: #fff; padding: 12px; border-radius: 12px; margin: 0 auto; width: fit-content;"></div>
             
             <div>
-                <span style="font-size: 12px; color: #94a3b8; display: block; margin-top: 6px;">Live Stream Anti-Video-Call Status:</span>
-                <span class="watermark-badge" id="live-seed-display">BROADCASTING (1.0s REFRESH)</span>
+                <span style="font-size: 12px; color: #94a3b8; display: block; margin-top: 6px;">Live Visual Security Seed:</span>
+                <span class="watermark-badge" id="watermark-display">SYNCING...</span>
             </div>
 
             <div style="overflow: hidden; margin-top: 16px; margin-bottom: 8px;">
@@ -434,10 +434,11 @@
 </div>
 
 <script>
-    const MQTT_TOPIC = "kcet/qr_attendance_system_live_v8";
+    const MQTT_TOPIC = "kcet/qr_attendance_system_unified_bulletproof_v4";
     const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
 
     let attendanceRecords = [];
+    let usedNonces = new Set();
     let currentRole = 'student';
     let loggedInUser = '';
     let loggedInName = '';
@@ -461,6 +462,9 @@
                 const data = JSON.parse(message.toString());
                 if (data.type === 'CLEAR') {
                     attendanceRecords = [];
+                    usedNonces.clear();
+                } else if (data.type === 'BURN_NONCE') {
+                    usedNonces.add(data.nonce);
                 } else if (data.type === 'ATTENDANCE') {
                     if (!attendanceRecords.some(r => r.rollNo === data.rollNo)) {
                         attendanceRecords.push(data);
@@ -551,7 +555,7 @@
                 );
             });
 
-            showAlert(studentAlert, 'Scanner active! Point camera directly at classroom board.', 'info');
+            showAlert(studentAlert, 'Scanner active! Point camera directly at the classroom board.', 'info');
 
         } catch (err) {
             console.error(err);
@@ -563,21 +567,29 @@
         const studentAlert = document.getElementById('student-alert');
         
         try {
-            // PAYLOAD: ATTEND|SubCode|Sec|Period|TimestampMS
             const parts = decodedText.split('|');
-            if (parts.length === 5 && parts[0] === 'ATTEND') {
-                const [_, subCode, sec, period, qrTimeStr] = parts;
+            if (parts.length === 6 && parts[0] === 'ATTEND') {
+                const [_, subCode, sec, period, qrTimeStr, nonce] = parts;
                 const qrTimestamp = parseInt(qrTimeStr, 10);
                 const currentTimestamp = Date.now();
                 const latency = currentTimestamp - qrTimestamp;
 
-                // 1. Strict 1.2 Second Latency Decay Window (Kills video call transmission delay)
-                if (latency > 1200) {
-                    showAlert(studentAlert, '❌ EXPIRED QR! Video call stream / screen recording detected.', 'error');
+                // 1. Time Decay Check (Must be <= 2.0 seconds)
+                if (latency > 2000) {
+                    showAlert(studentAlert, '❌ EXPIRED QR! Photos or remote video feeds are rejected.', 'error');
                     return;
                 }
 
-                // Submit attendance directly
+                // 2. Single-Use Nonce Burn Check
+                if (usedNonces.has(nonce)) {
+                    showAlert(studentAlert, '❌ REUSED TOKEN! This exact frame was already scanned.', 'error');
+                    return;
+                }
+
+                // Immediately burn nonce network-wide
+                client.publish(MQTT_TOPIC, JSON.stringify({ type: 'BURN_NONCE', nonce: nonce }));
+
+                // Submit attendance
                 const payload = {
                     type: 'ATTENDANCE',
                     rollNo: loggedInUser,
@@ -619,8 +631,7 @@
         if (qrRefreshInterval) clearInterval(qrRefreshInterval);
 
         updateDynamicQR();
-        // 1.0 Second Acceleration to defeat video stream delays
-        qrRefreshInterval = setInterval(updateDynamicQR, 1000);
+        qrRefreshInterval = setInterval(updateDynamicQR, 1500);
     }
 
     function updateDynamicQR() {
@@ -628,7 +639,12 @@
         qrContainer.innerHTML = '';
 
         const timestamp = Date.now();
-        const payloadStr = `ATTEND|${classDetails.subjectCode}|${classDetails.section}|P${classDetails.period}|${timestamp}`;
+        const nonce = Math.random().toString(36).substring(2, 10);
+        const watermarkToken = nonce.substring(0, 4).toUpperCase();
+
+        document.getElementById('watermark-display').innerText = watermarkToken;
+
+        const payloadStr = `ATTEND|${classDetails.subjectCode}|${classDetails.section}|P${classDetails.period}|${timestamp}|${nonce}`;
 
         new QRCode(qrContainer, { 
             text: payloadStr, 
