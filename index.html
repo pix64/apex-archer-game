@@ -300,12 +300,12 @@
             background: #38bdf8;
             color: #0f172a;
             font-weight: 800;
-            font-size: 16px;
+            font-size: 13px;
             padding: 4px 12px;
             border-radius: 8px;
             display: inline-block;
             margin-top: 8px;
-            letter-spacing: 2px;
+            letter-spacing: 1px;
         }
     </style>
 </head>
@@ -411,8 +411,8 @@
             <div id="qr-code-container" style="display: flex; justify-content: center; background: #fff; padding: 12px; border-radius: 12px; margin: 0 auto; width: fit-content;"></div>
             
             <div>
-                <span style="font-size: 12px; color: #94a3b8; display: block; margin-top: 6px;">Live Board Seed Code:</span>
-                <span class="pin-badge" id="live-seed-display">SYNCING...</span>
+                <span style="font-size: 12px; color: #94a3b8; display: block; margin-top: 6px;">Anti-Video-Call Stream Status:</span>
+                <span class="pin-badge" id="live-seed-display">BROADCASTING (1.0s REFRESH)</span>
             </div>
 
             <div style="overflow: hidden; margin-top: 16px; margin-bottom: 8px;">
@@ -421,9 +421,16 @@
             </div>
 
             <table class="attendance-table">
-                <thead><tr><th>Roll No</th><th>Student Name</th><th>Status</th></tr></thead>
+                <thead>
+                    <tr>
+                        <th>Roll No</th>
+                        <th>Student Name</th>
+                        <th>Scan Time</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
                 <tbody id="attendance-roster-body">
-                    <tr><td colspan="3" style="color: #64748b;">Waiting for live scans...</td></tr>
+                    <tr><td colspan="4" style="color: #64748b;">Waiting for live scans...</td></tr>
                 </tbody>
             </table>
 
@@ -434,8 +441,8 @@
 </div>
 
 <script>
-    const MQTT_TOPIC = "kcet/qr_attendance_system_live_v5";
-    const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
+    const MQTT_TOPIC = "kcet/qr_attendance_system_live_v12";
+    const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt', { reconnectPeriod: 1000 });
 
     let attendanceRecords = [];
     let currentRole = 'student';
@@ -445,7 +452,7 @@
     let classDetails = {};
     let qrRefreshInterval = null;
 
-    const DEVICE_KEY = "device_bound_roll_number";
+    const DEVICE_SCAN_LOCK = "device_scanned_session_id";
 
     client.on('connect', () => {
         const dot = document.getElementById('sync-dot');
@@ -488,15 +495,8 @@
         const alertBox = document.getElementById('login-alert');
 
         if (currentRole === 'student') {
-            const boundUser = localStorage.getItem(DEVICE_KEY);
-            if (boundUser && boundUser !== user) {
-                showAlert(alertBox, `Device Lock: Bound to Roll No ${boundUser}. Cannot log in with another account.`);
-                return;
-            }
-
             if (pass === user) {
                 loggedInUser = user;
-                localStorage.setItem(DEVICE_KEY, user);
                 document.getElementById('student-display-name').innerText = loggedInName;
                 document.getElementById('student-display-id').innerText = user;
                 switchView('student-view');
@@ -571,22 +571,43 @@
                 const currentTimestamp = Date.now();
                 const latency = currentTimestamp - qrTimestamp;
 
-                // Time-Decay Window Check (<= 2.0 seconds)
-                if (latency > 2000) {
-                    showAlert(studentAlert, '❌ EXPIRED QR! Photos or remote video calls are rejected.', 'error');
+                const sessionId = `${subCode}_${sec}_${period}`;
+                const deviceLock = localStorage.getItem(DEVICE_SCAN_LOCK);
+
+                // 1. Hardware One-Scan Lock Per Session
+                if (deviceLock === sessionId) {
+                    showAlert(studentAlert, '❌ DEVICE LOCK: Attendance already submitted from this phone for this session!', 'error');
+                    if (html5QrCode) {
+                        html5QrCode.stop().then(() => {
+                            document.getElementById('scanner-wrapper').style.display = 'none';
+                        });
+                    }
                     return;
                 }
+
+                // 2. Strict 1.2 Second Latency Gate (Blocks Video Calls / Streams)
+                if (latency > 1200) {
+                    showAlert(studentAlert, '❌ EXPIRED QR! Video call stream / screen recording detected.', 'error');
+                    return;
+                }
+
+                // Lock device to current session
+                localStorage.setItem(DEVICE_SCAN_LOCK, sessionId);
+
+                // Formatted local scan timestamp
+                const formattedTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
                 // Submit attendance
                 const payload = {
                     type: 'ATTENDANCE',
                     rollNo: loggedInUser,
                     name: loggedInName,
+                    scanTime: formattedTime,
                     status: 'PRESENT'
                 };
 
                 client.publish(MQTT_TOPIC, JSON.stringify(payload));
-                showAlert(studentAlert, '✅ Attendance Verified (Physical Presence Confirmed)!', 'success');
+                showAlert(studentAlert, `✅ Attendance Verified at ${formattedTime}!`, 'success');
 
                 if (html5QrCode) {
                     html5QrCode.stop().then(() => {
@@ -619,7 +640,8 @@
         if (qrRefreshInterval) clearInterval(qrRefreshInterval);
 
         updateDynamicQR();
-        qrRefreshInterval = setInterval(updateDynamicQR, 1500);
+        // 1.0 Second Acceleration to defeat video call stream latency
+        qrRefreshInterval = setInterval(updateDynamicQR, 1000);
     }
 
     function updateDynamicQR() {
@@ -627,10 +649,6 @@
         qrContainer.innerHTML = '';
 
         const timestamp = Date.now();
-        const seedCode = Math.floor(10 + Math.random() * 90).toString();
-
-        document.getElementById('live-seed-display').innerText = `SEED [${seedCode}]`;
-
         const payloadStr = `ATTEND|${classDetails.subjectCode}|${classDetails.section}|P${classDetails.period}|${timestamp}`;
 
         new QRCode(qrContainer, { 
@@ -654,7 +672,7 @@
         const sorted = getSortedRecords();
 
         if (sorted.length === 0) {
-            rosterBody.innerHTML = '<tr><td colspan="3" style="color: #64748b;">Waiting for live scans...</td></tr>';
+            rosterBody.innerHTML = '<tr><td colspan="4" style="color: #64748b;">Waiting for live scans...</td></tr>';
             return;
         }
 
@@ -662,6 +680,7 @@
             <tr>
                 <td><strong>${item.rollNo}</strong></td>
                 <td>${item.name}</td>
+                <td style="color: #94a3b8;">${item.scanTime || 'N/A'}</td>
                 <td class="badge-present">${item.status}</td>
             </tr>
         `).join('');
@@ -697,20 +716,22 @@
             index + 1,
             item.rollNo,
             item.name,
+            item.scanTime || 'N/A',
             item.status
         ]);
 
         doc.autoTable({
             startY: 45,
-            head: [['S.No', 'Roll Number', 'Student Name', 'Status']],
+            head: [['S.No', 'Roll Number', 'Student Name', 'Scan Time', 'Status']],
             body: tableBody,
             theme: 'grid',
             headStyles: { fillColor: [37, 99, 235] },
             columnStyles: {
-                0: { cellWidth: 20 },
-                1: { cellWidth: 40 },
-                2: { cellWidth: 90 },
-                3: { cellWidth: 30 }
+                0: { cellWidth: 15 },
+                1: { cellWidth: 35 },
+                2: { cellWidth: 70 },
+                3: { cellWidth: 35 },
+                4: { cellWidth: 25 }
             }
         });
 
