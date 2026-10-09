@@ -300,7 +300,7 @@
             background: #0284c7;
             color: #fff;
             font-weight: 800;
-            font-size: 13px;
+            font-size: 12px;
             padding: 4px 12px;
             border-radius: 8px;
             display: inline-block;
@@ -411,8 +411,8 @@
             <div id="qr-code-container" style="display: flex; justify-content: center; background: #fff; padding: 12px; border-radius: 12px; margin: 0 auto; width: fit-content;"></div>
             
             <div>
-                <span style="font-size: 12px; color: #94a3b8; display: block; margin-top: 6px;">Live Stream Verification Status:</span>
-                <span class="watermark-badge" id="live-seed-display">BROADCAST ACTIVE</span>
+                <span style="font-size: 12px; color: #94a3b8; display: block; margin-top: 6px;">Live Stream Anti-Video-Call Status:</span>
+                <span class="watermark-badge" id="live-seed-display">BROADCASTING (1.0s REFRESH)</span>
             </div>
 
             <div style="overflow: hidden; margin-top: 16px; margin-bottom: 8px;">
@@ -434,7 +434,7 @@
 </div>
 
 <script>
-    const MQTT_TOPIC = "kcet/qr_attendance_system_live_v7";
+    const MQTT_TOPIC = "kcet/qr_attendance_system_live_v8";
     const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
 
     let attendanceRecords = [];
@@ -571,13 +571,13 @@
                 const currentTimestamp = Date.now();
                 const latency = currentTimestamp - qrTimestamp;
 
-                // 1. Strict 1.5 Second Latency Check (Blocks video call stream transmission delays)
-                if (latency > 1500) {
-                    showAlert(studentAlert, '❌ EXPIRED QR! Video call streams / screen recordings rejected.', 'error');
+                // 1. Strict 1.2 Second Latency Decay Window (Kills video call transmission delay)
+                if (latency > 1200) {
+                    showAlert(studentAlert, '❌ EXPIRED QR! Video call stream / screen recording detected.', 'error');
                     return;
                 }
 
-                // Submit attendance directly without manual prompt
+                // Submit attendance directly
                 const payload = {
                     type: 'ATTENDANCE',
                     rollNo: loggedInUser,
@@ -619,8 +619,8 @@
         if (qrRefreshInterval) clearInterval(qrRefreshInterval);
 
         updateDynamicQR();
-        // 1.2 Second High-Frequency Refresh Rate
-        qrRefreshInterval = setInterval(updateDynamicQR, 1200);
+        // 1.0 Second Acceleration to defeat video stream delays
+        qrRefreshInterval = setInterval(updateDynamicQR, 1000);
     }
 
     function updateDynamicQR() {
