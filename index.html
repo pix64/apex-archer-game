@@ -417,7 +417,7 @@
 </div>
 
 <script>
-    const MQTT_TOPIC = "kcet/qr_attendance_system_live_v10";
+    const MQTT_TOPIC = "kcet/qr_attendance_system_live_v11";
     const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
 
     let attendanceRecords = [];
@@ -435,7 +435,11 @@
         const status = document.getElementById('sync-status');
         if (dot) dot.classList.add('online');
         if (status) status.innerText = 'Engine Online & Connected';
-        client.subscribe(MQTT_TOPIC);
+        client.subscribe(MQTT_TOPIC, (err) => {
+            if (!err) {
+                console.log("Subscribed successfully to topic:", MQTT_TOPIC);
+            }
+        });
     });
 
     client.on('message', (topic, message) => {
@@ -445,14 +449,18 @@
                 if (data.type === 'CLEAR') {
                     attendanceRecords = [];
                 } else if (data.type === 'ATTENDANCE') {
-                    // Check if student already exists; if not, push to records
-                    if (!attendanceRecords.some(r => r.rollNo === data.rollNo)) {
+                    // Prevent duplicate entries for the same student roll number
+                    const existingIndex = attendanceRecords.findIndex(r => r.rollNo === data.rollNo);
+                    if (existingIndex === -1) {
                         attendanceRecords.push({
                             rollNo: data.rollNo,
                             name: data.name,
                             timestamp: data.timestamp,
                             status: data.status
                         });
+                    } else {
+                        // Update existing entry if needed
+                        attendanceRecords[existingIndex].timestamp = data.timestamp;
                     }
                 }
                 renderRosterTable();
@@ -552,7 +560,6 @@
         const studentAlert = document.getElementById('student-alert');
         
         try {
-            // PAYLOAD: ATTEND|SubCode|Sec|Period|TimestampMS
             const parts = decodedText.split('|');
             if (parts.length >= 5 && parts[0] === 'ATTEND') {
                 const [_, subCode, sec, period, qrTimeStr] = parts;
@@ -560,7 +567,6 @@
                 const currentTimestamp = Date.now();
                 const latency = currentTimestamp - qrTimestamp;
 
-                // Strict 1.2-Second Time-Decay Window Check[cite: 1]
                 if (latency > 1200) {
                     showAlert(studentAlert, '❌ EXPIRED QR! Photos or remote video calls are rejected.', 'error');
                     return;
@@ -576,8 +582,16 @@
                     timestamp: markTime
                 };
 
-                // Publish and also locally append so teacher view updates immediately if running locally
-                client.publish(MQTT_TOPIC, JSON.stringify(payload));
+                // Publish to MQTT broker
+                client.publish(MQTT_TOPIC, JSON.stringify(payload), {}, (err) => {
+                    if (!err) {
+                        // Also update teacher roster immediately locally if testing on same machine/browser instance
+                        if (!attendanceRecords.some(r => r.rollNo === loggedInUser)) {
+                            attendanceRecords.push(payload);
+                            renderRosterTable();
+                        }
+                    }
+                });
                 
                 showAlert(studentAlert, '✅ Attendance Verified Successfully!', 'success');
 
@@ -660,6 +674,8 @@
     function clearRoster() {
         if (confirm("Clear attendance list for this session?")) {
             client.publish(MQTT_TOPIC, JSON.stringify({ type: 'CLEAR' }));
+            attendanceRecords = [];
+            renderRosterTable();
         }
     }
 
