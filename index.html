@@ -417,7 +417,7 @@
 </div>
 
 <script>
-    const MQTT_TOPIC = "kcet/qr_attendance_system_live_v12";
+    const MQTT_TOPIC = "kcet/qr_attendance_system_live_v13";
     const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
 
     let attendanceRecords = [];
@@ -481,7 +481,13 @@
         const alertBox = document.getElementById('login-alert');
 
         if (currentRole === 'student') {
-            // Device binding restriction removed: any roll number can log in on this device freely
+            // Check if this device has already submitted a successful attendance scan
+            const deviceLocked = localStorage.getItem('device_attendance_submitted');
+            if (deviceLocked === 'true') {
+                showAlert(alertBox, '❌ This device has already recorded attendance and is locked for this session.');
+                return;
+            }
+
             if (pass === user) {
                 loggedInUser = user;
                 document.getElementById('student-display-name').innerText = loggedInName;
@@ -506,6 +512,12 @@
     async function startScanner() {
         const studentAlert = document.getElementById('student-alert');
         const scannerWrapper = document.getElementById('scanner-wrapper');
+
+        // Check lock again before opening camera
+        if (localStorage.getItem('device_attendance_submitted') === 'true') {
+            showAlert(studentAlert, '❌ You have already scanned and marked present on this device.', 'error');
+            return;
+        }
 
         showAlert(studentAlert, 'Activating live camera...', 'info');
 
@@ -572,7 +584,10 @@
                     timestamp: markTime
                 };
 
-                client.publish(MQTT_TOPIC, JSON.stringify(payload), {}, (err) => {
+                // Lock device immediately upon successful validation to prevent duplicate submissions
+                localStorage.setItem('device_attendance_submitted', 'true');
+
+                client.publish(MQTT_TOPIC, JSON.stringify(payload), { qos: 1 }, (err) => {
                     if (!err) {
                         if (!attendanceRecords.some(r => r.rollNo === loggedInUser)) {
                             attendanceRecords.push(payload);
@@ -581,7 +596,7 @@
                     }
                 });
                 
-                showAlert(studentAlert, '✅ Attendance Verified Successfully!', 'success');
+                showAlert(studentAlert, '✅ Attendance Verified and Marked Present!', 'success');
 
                 if (html5QrCode) {
                     html5QrCode.stop().then(() => {
@@ -663,6 +678,7 @@
         if (confirm("Clear attendance list for this session?")) {
             client.publish(MQTT_TOPIC, JSON.stringify({ type: 'CLEAR' }));
             attendanceRecords = [];
+            localStorage.removeItem('device_attendance_submitted');
             renderRosterTable();
         }
     }
