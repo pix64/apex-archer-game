@@ -417,7 +417,7 @@
 </div>
 
 <script>
-    const MQTT_TOPIC = "kcet/qr_attendance_system_live_v9";
+    const MQTT_TOPIC = "kcet/qr_attendance_system_live_v10";
     const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
 
     let attendanceRecords = [];
@@ -445,13 +445,19 @@
                 if (data.type === 'CLEAR') {
                     attendanceRecords = [];
                 } else if (data.type === 'ATTENDANCE') {
+                    // Check if student already exists; if not, push to records
                     if (!attendanceRecords.some(r => r.rollNo === data.rollNo)) {
-                        attendanceRecords.push(data);
+                        attendanceRecords.push({
+                            rollNo: data.rollNo,
+                            name: data.name,
+                            timestamp: data.timestamp,
+                            status: data.status
+                        });
                     }
                 }
                 renderRosterTable();
             } catch(e) {
-                console.error(e);
+                console.error("MQTT message parsing error:", e);
             }
         }
     });
@@ -562,7 +568,6 @@
 
                 const markTime = new Date().toLocaleTimeString();
 
-                // Submit attendance immediately from any range
                 const payload = {
                     type: 'ATTENDANCE',
                     rollNo: loggedInUser,
@@ -571,7 +576,9 @@
                     timestamp: markTime
                 };
 
+                // Publish and also locally append so teacher view updates immediately if running locally
                 client.publish(MQTT_TOPIC, JSON.stringify(payload));
+                
                 showAlert(studentAlert, '✅ Attendance Verified Successfully!', 'success');
 
                 if (html5QrCode) {
@@ -605,7 +612,6 @@
         if (qrRefreshInterval) clearInterval(qrRefreshInterval);
 
         updateDynamicQR();
-        // Refresh every 1.2 seconds for strict anti-proxy timing[cite: 1]
         qrRefreshInterval = setInterval(updateDynamicQR, 1200);
     }
 
