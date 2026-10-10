@@ -417,7 +417,7 @@
 </div>
 
 <script>
-    const MQTT_TOPIC = "kcet/qr_attendance_system_live_v6";
+    const MQTT_TOPIC = "kcet/qr_attendance_system_live_v7";
     const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
 
     let attendanceRecords = [];
@@ -570,61 +570,54 @@
                 const currentTimestamp = Date.now();
                 const latency = currentTimestamp - qrTimestamp;
 
-                // Strict 1.2-Second Time-Decay Window Check
+                // Strict 1.2-Second Time-Decay Window Check[cite: 1]
                 if (latency > 1200) {
-                    showAlert(studentAlert, '❌ EXPIRED QR! Photos or remote video streams are rejected.', 'error');
+                    showAlert(studentAlert, '❌ EXPIRED QR! Photos or remote video calls are rejected.', 'error');
                     return;
                 }
 
-                // Check Geolocation Proximity
-                if (!navigator.geolocation) {
-                    showAlert(studentAlert, 'Geolocation is not supported by your browser.', 'error');
-                    return;
+                const markTime = new Date().toLocaleTimeString();
+
+                // Optional location measurement for display purposes only (range block removed)
+                if (navigator.geolocation) {
+                    navigator.geolocation.getCurrentPosition((position) => {
+                        const studentLat = position.coords.latitude;
+                        const studentLng = position.coords.longitude;
+                        const distance = calculateDistance(parseFloat(tLatStr), parseFloat(tLngStr), studentLat, studentLng);
+                        finalizeAttendance(markTime, `${distance.toFixed(1)}m`);
+                    }, (err) => {
+                        finalizeAttendance(markTime, 'GPS Off');
+                    }, { enableHighAccuracy: true, timeout: 3000 });
+                } else {
+                    finalizeAttendance(markTime, 'N/A');
                 }
-
-                navigator.geolocation.getCurrentPosition((position) => {
-                    const studentLat = position.coords.latitude;
-                    const studentLng = position.coords.longitude;
-                    const tLat = parseFloat(tLatStr);
-                    const tLng = parseFloat(tLngStr);
-
-                    const distance = calculateDistance(tLat, tLng, studentLat, studentLng);
-                    const maxAllowedRangeMeters = 20.0; // 20 meters classroom radius limit
-
-                    if (distance > maxAllowedRangeMeters) {
-                        showAlert(studentAlert, `❌ OUT OF RANGE! You are ${distance.toFixed(1)}m away from the teacher's computer.`, 'error');
-                        return;
-                    }
-
-                    const markTime = new Date().toLocaleTimeString();
-
-                    // Submit attendance with timestamp and distance range
-                    const payload = {
-                        type: 'ATTENDANCE',
-                        rollNo: loggedInUser,
-                        name: loggedInName,
-                        status: 'PRESENT',
-                        timestamp: markTime,
-                        range: `${distance.toFixed(1)}m`
-                    };
-
-                    client.publish(MQTT_TOPIC, JSON.stringify(payload));
-                    showAlert(studentAlert, `✅ Attendance Verified (${distance.toFixed(1)}m from board)!`, 'success');
-
-                    if (html5QrCode) {
-                        html5QrCode.stop().then(() => {
-                            document.getElementById('scanner-wrapper').style.display = 'none';
-                        });
-                    }
-                }, (err) => {
-                    showAlert(studentAlert, 'Please enable GPS location permissions to verify attendance.', 'error');
-                }, { enableHighAccuracy: true, timeout: 5000 });
 
             } else {
                 showAlert(studentAlert, 'Invalid QR format.', 'error');
             }
         } catch(e) {
             showAlert(studentAlert, 'Error processing QR frame.', 'error');
+        }
+    }
+
+    function finalizeAttendance(markTime, rangeStr) {
+        const studentAlert = document.getElementById('student-alert');
+        const payload = {
+            type: 'ATTENDANCE',
+            rollNo: loggedInUser,
+            name: loggedInName,
+            status: 'PRESENT',
+            timestamp: markTime,
+            range: rangeStr
+        };
+
+        client.publish(MQTT_TOPIC, JSON.stringify(payload));
+        showAlert(studentAlert, '✅ Attendance Verified Successfully!', 'success');
+
+        if (html5QrCode) {
+            html5QrCode.stop().then(() => {
+                document.getElementById('scanner-wrapper').style.display = 'none';
+            });
         }
     }
 
@@ -646,8 +639,7 @@
                 teacherLocation = { lat: pos.coords.latitude, lng: pos.coords.longitude };
                 initQRStream();
             }, (err) => {
-                alert("GPS Error: Teacher location required for range verification. Using fallback coordinates.");
-                teacherLocation = { lat: 13.0827, lng: 80.2707 }; // Default fallback
+                teacherLocation = { lat: 13.0827, lng: 80.2707 }; // Fallback coordinates
                 initQRStream();
             }, { enableHighAccuracy: true });
         } else {
@@ -662,7 +654,7 @@
         if (qrRefreshInterval) clearInterval(qrRefreshInterval);
 
         updateDynamicQR();
-        // Refresh every 1.2 seconds for strict anti-proxy timing
+        // Refresh every 1.2 seconds for strict anti-proxy timing[cite: 1]
         qrRefreshInterval = setInterval(updateDynamicQR, 1200);
     }
 
