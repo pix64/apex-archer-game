@@ -417,7 +417,7 @@
 </div>
 
 <script>
-    const MQTT_TOPIC = "kcet/qr_attendance_system_live_v15";
+    const MQTT_TOPIC = "kcet/qr_attendance_system_live_v16";
     const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
 
     let attendanceRecords = [];
@@ -440,31 +440,42 @@
         });
     });
 
+    // Listen to incoming MQTT messages and also storage events for cross-tab sync
     client.on('message', (topic, message) => {
         if (topic === MQTT_TOPIC) {
-            try {
-                const data = JSON.parse(message.toString());
-                if (data.type === 'CLEAR') {
-                    attendanceRecords = [];
-                } else if (data.type === 'ATTENDANCE') {
-                    const existingIndex = attendanceRecords.findIndex(r => r.rollNo === data.rollNo);
-                    if (existingIndex === -1) {
-                        attendanceRecords.push({
-                            rollNo: data.rollNo,
-                            name: data.name,
-                            timestamp: data.timestamp,
-                            status: data.status
-                        });
-                    } else {
-                        attendanceRecords[existingIndex].timestamp = data.timestamp;
-                    }
-                }
-                renderRosterTable();
-            } catch(e) {
-                console.error("MQTT message parsing error:", e);
-            }
+            handleIncomingData(message.toString());
         }
     });
+
+    window.addEventListener('storage', (event) => {
+        if (event.key === 'sync_attendance_payload' && event.newValue) {
+            handleIncomingData(event.newValue);
+        }
+    });
+
+    function handleIncomingData(rawString) {
+        try {
+            const data = JSON.parse(rawString);
+            if (data.type === 'CLEAR') {
+                attendanceRecords = [];
+            } else if (data.type === 'ATTENDANCE') {
+                const existingIndex = attendanceRecords.findIndex(r => r.rollNo === data.rollNo);
+                if (existingIndex === -1) {
+                    attendanceRecords.push({
+                        rollNo: data.rollNo,
+                        name: data.name,
+                        timestamp: data.timestamp,
+                        status: data.status
+                    });
+                } else {
+                    attendanceRecords[existingIndex].timestamp = data.timestamp;
+                }
+            }
+            renderRosterTable();
+        } catch(e) {
+            console.error("Data parsing error:", e);
+        }
+    }
 
     function setRole(role) {
         currentRole = role;
@@ -483,7 +494,6 @@
         if (currentRole === 'student') {
             const boundRoll = localStorage.getItem('device_bound_roll');
             
-            // If device is already bound to a specific roll number, prevent other roll numbers from logging in
             if (boundRoll && boundRoll !== user) {
                 showAlert(alertBox, `❌ This device is bound to Roll Number ${boundRoll}. Other students cannot log in here.`);
                 return;
@@ -585,18 +595,17 @@
                     timestamp: markTime
                 };
 
-                // Bind device to this roll number and lock submission
+                // Bind device and lock submission
                 localStorage.setItem('device_bound_roll', loggedInUser);
                 localStorage.setItem('device_attendance_submitted', 'true');
 
-                client.publish(MQTT_TOPIC, JSON.stringify(payload), { qos: 1 }, (err) => {
-                    if (!err) {
-                        if (!attendanceRecords.some(r => r.rollNo === loggedInUser)) {
-                            attendanceRecords.push(payload);
-                            renderRosterTable();
-                        }
-                    }
-                });
+                const payloadString = JSON.stringify(payload);
+
+                // Publish via MQTT and trigger local storage sync for instant UI update
+                client.publish(MQTT_TOPIC, payloadString, { qos: 1 });
+                localStorage.setItem('sync_attendance_payload', payloadString);
+
+                handleIncomingData(payloadString);
                 
                 showAlert(studentAlert, '✅ Attendance Verified and Marked Present!', 'success');
 
@@ -678,7 +687,10 @@
 
     function clearRoster() {
         if (confirm("Clear attendance list for this session?")) {
-            client.publish(MQTT_TOPIC, JSON.stringify({ type: 'CLEAR' }));
+            const clearPayload = JSON.stringify({ type: 'CLEAR' });
+            client.publish(MQTT_TOPIC, clearPayload);
+            localStorage.setItem('sync_attendance_payload', clearPayload);
+            
             attendanceRecords = [];
             localStorage.removeItem('device_bound_roll');
             localStorage.removeItem('device_attendance_submitted');
