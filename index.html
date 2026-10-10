@@ -417,7 +417,7 @@
 </div>
 
 <script>
-    const MQTT_TOPIC = "kcet/qr_attendance_system_live_v16";
+    const MQTT_TOPIC = "kcet/qr_attendance_system_live_v17";
     const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
 
     let attendanceRecords = [];
@@ -440,7 +440,6 @@
         });
     });
 
-    // Listen to incoming MQTT messages and also storage events for cross-tab sync
     client.on('message', (topic, message) => {
         if (topic === MQTT_TOPIC) {
             handleIncomingData(message.toString());
@@ -492,13 +491,7 @@
         const alertBox = document.getElementById('login-alert');
 
         if (currentRole === 'student') {
-            const boundRoll = localStorage.getItem('device_bound_roll');
-            
-            if (boundRoll && boundRoll !== user) {
-                showAlert(alertBox, `❌ This device is bound to Roll Number ${boundRoll}. Other students cannot log in here.`);
-                return;
-            }
-
+            // Allow all users to log in freely
             if (pass === user) {
                 loggedInUser = user;
                 document.getElementById('student-display-name').innerText = loggedInName;
@@ -523,12 +516,6 @@
     async function startScanner() {
         const studentAlert = document.getElementById('student-alert');
         const scannerWrapper = document.getElementById('scanner-wrapper');
-
-        const boundRoll = localStorage.getItem('device_bound_roll');
-        if (boundRoll && boundRoll === loggedInUser && localStorage.getItem('device_attendance_submitted') === 'true') {
-            showAlert(studentAlert, '✅ You have already scanned and successfully marked attendance.', 'info');
-            return;
-        }
 
         showAlert(studentAlert, 'Activating live camera...', 'info');
 
@@ -573,6 +560,7 @@
         const studentAlert = document.getElementById('student-alert');
         
         try {
+            // PAYLOAD: ATTEND|SubCode|Sec|Period|TimestampMS
             const parts = decodedText.split('|');
             if (parts.length >= 5 && parts[0] === 'ATTEND') {
                 const [_, subCode, sec, period, qrTimeStr] = parts;
@@ -585,6 +573,18 @@
                     return;
                 }
 
+                // Create a unique session key based on Subject Code, Section, and Period
+                const sessionKey = `attended_${subCode}_${sec}_P${period}_${loggedInUser}`;
+                if (localStorage.getItem(sessionKey) === 'true') {
+                    showAlert(studentAlert, `❌ Attendance already marked for Roll Number ${loggedInUser} in this section/session!`, 'error');
+                    if (html5QrCode) {
+                        html5QrCode.stop().then(() => {
+                            document.getElementById('scanner-wrapper').style.display = 'none';
+                        });
+                    }
+                    return;
+                }
+
                 const markTime = new Date().toLocaleTimeString();
 
                 const payload = {
@@ -592,16 +592,15 @@
                     rollNo: loggedInUser,
                     name: loggedInName,
                     status: 'PRESENT',
-                    timestamp: markTime
+                    timestamp: markTime,
+                    sessionKey: sessionKey
                 };
 
-                // Bind device and lock submission
-                localStorage.setItem('device_bound_roll', loggedInUser);
-                localStorage.setItem('device_attendance_submitted', 'true');
+                // Mark session as attended for this roll number
+                localStorage.setItem(sessionKey, 'true');
 
                 const payloadString = JSON.stringify(payload);
 
-                // Publish via MQTT and trigger local storage sync for instant UI update
                 client.publish(MQTT_TOPIC, payloadString, { qos: 1 });
                 localStorage.setItem('sync_attendance_payload', payloadString);
 
@@ -692,8 +691,6 @@
             localStorage.setItem('sync_attendance_payload', clearPayload);
             
             attendanceRecords = [];
-            localStorage.removeItem('device_bound_roll');
-            localStorage.removeItem('device_attendance_submitted');
             renderRosterTable();
         }
     }
