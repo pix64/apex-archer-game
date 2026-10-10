@@ -404,7 +404,7 @@
             </div>
 
             <table class="attendance-table">
-                <thead><tr><th>Roll No</th><th>Name</th><th>Time</th><th>Range</th></tr></thead>
+                <thead><tr><th>Roll No</th><th>Name</th><th>Time</th><th>Status</th></tr></thead>
                 <tbody id="attendance-roster-body">
                     <tr><td colspan="4" style="color: #64748b;">Waiting for live scans...</td></tr>
                 </tbody>
@@ -417,7 +417,7 @@
 </div>
 
 <script>
-    const MQTT_TOPIC = "kcet/qr_attendance_system_live_v8";
+    const MQTT_TOPIC = "kcet/qr_attendance_system_live_v9";
     const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
 
     let attendanceRecords = [];
@@ -427,7 +427,6 @@
     let html5QrCode = null;
     let classDetails = {};
     let qrRefreshInterval = null;
-    let teacherLocation = null;
 
     const DEVICE_KEY = "device_bound_roll_number";
 
@@ -543,35 +542,14 @@
         }
     }
 
-    function calculateDistance(lat1, lon1, lat2, lon2) {
-        const R = 6371e3; // metres
-        const φ1 = lat1 * Math.PI/180;
-        const φ2 = lat2 * Math.PI/180;
-        const Δφ = (lat2-lat1) * Math.PI/180;
-        const Δλ = (lon2-lon1) * Math.PI/180;
-
-        const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
-                  Math.cos(φ1) * Math.cos(φ2) *
-                  Math.sin(Δλ/2) * Math.sin(Δλ/2);
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-
-        let dist = R * c; // in meters
-        
-        // Indoor GPS normalization: if GPS drift is within minor indoor thresholds, normalize to realistic proximity
-        if (dist < 30) {
-            dist = Math.max(1.2, dist * 0.25); // Scales indoor GPS jitter into realistic room range (e.g. 1m - 7m)
-        }
-        return dist;
-    }
-
     function onScanSuccess(decodedText) {
         const studentAlert = document.getElementById('student-alert');
         
         try {
-            // PAYLOAD: ATTEND|SubCode|Sec|Period|TimestampMS|TeacherLat|TeacherLng
+            // PAYLOAD: ATTEND|SubCode|Sec|Period|TimestampMS
             const parts = decodedText.split('|');
-            if (parts.length >= 7 && parts[0] === 'ATTEND') {
-                const [_, subCode, sec, period, qrTimeStr, tLatStr, tLngStr] = parts;
+            if (parts.length >= 5 && parts[0] === 'ATTEND') {
+                const [_, subCode, sec, period, qrTimeStr] = parts;
                 const qrTimestamp = parseInt(qrTimeStr, 10);
                 const currentTimestamp = Date.now();
                 const latency = currentTimestamp - qrTimestamp;
@@ -584,46 +562,28 @@
 
                 const markTime = new Date().toLocaleTimeString();
 
-                // Location measurement for logging and display (scanning allowed from any range)
-                if (navigator.geolocation) {
-                    navigator.geolocation.getCurrentPosition((position) => {
-                        const studentLat = position.coords.latitude;
-                        const studentLng = position.coords.longitude;
-                        const distance = calculateDistance(parseFloat(tLatStr), parseFloat(tLngStr), studentLat, studentLng);
-                        finalizeAttendance(markTime, `${distance.toFixed(1)}m`);
-                    }, (err) => {
-                        finalizeAttendance(markTime, 'Classroom');
-                    }, { enableHighAccuracy: true, maximumAge: 0, timeout: 3000 });
-                } else {
-                    finalizeAttendance(markTime, 'Classroom');
-                }
+                // Submit attendance immediately from any range
+                const payload = {
+                    type: 'ATTENDANCE',
+                    rollNo: loggedInUser,
+                    name: loggedInName,
+                    status: 'PRESENT',
+                    timestamp: markTime
+                };
 
+                client.publish(MQTT_TOPIC, JSON.stringify(payload));
+                showAlert(studentAlert, '✅ Attendance Verified Successfully!', 'success');
+
+                if (html5QrCode) {
+                    html5QrCode.stop().then(() => {
+                        document.getElementById('scanner-wrapper').style.display = 'none';
+                    });
+                }
             } else {
                 showAlert(studentAlert, 'Invalid QR format.', 'error');
             }
         } catch(e) {
             showAlert(studentAlert, 'Error processing QR frame.', 'error');
-        }
-    }
-
-    function finalizeAttendance(markTime, rangeStr) {
-        const studentAlert = document.getElementById('student-alert');
-        const payload = {
-            type: 'ATTENDANCE',
-            rollNo: loggedInUser,
-            name: loggedInName,
-            status: 'PRESENT',
-            timestamp: markTime,
-            range: rangeStr
-        };
-
-        client.publish(MQTT_TOPIC, JSON.stringify(payload));
-        showAlert(studentAlert, '✅ Attendance Verified Successfully!', 'success');
-
-        if (html5QrCode) {
-            html5QrCode.stop().then(() => {
-                document.getElementById('scanner-wrapper').style.display = 'none';
-            });
         }
     }
 
@@ -640,21 +600,6 @@
             period: document.getElementById('period').value
         };
 
-        if (navigator.geolocation) {
-            navigator.geolocation.getCurrentPosition((pos) => {
-                teacherLocation = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-                initQRStream();
-            }, (err) => {
-                teacherLocation = { lat: 13.0827, lng: 80.2707 }; // Fallback coordinates
-                initQRStream();
-            }, { enableHighAccuracy: true, maximumAge: 0 });
-        } else {
-            teacherLocation = { lat: 13.0827, lng: 80.2707 };
-            initQRStream();
-        }
-    }
-
-    function initQRStream() {
         document.getElementById('qr-output').style.display = 'block';
 
         if (qrRefreshInterval) clearInterval(qrRefreshInterval);
@@ -669,10 +614,7 @@
         qrContainer.innerHTML = '';
 
         const timestamp = Date.now();
-        const tLat = teacherLocation ? teacherLocation.lat : 0;
-        const tLng = teacherLocation ? teacherLocation.lng : 0;
-
-        const payloadStr = `ATTEND|${classDetails.subjectCode}|${classDetails.section}|P${classDetails.period}|${timestamp}|${tLat}|${tLng}`;
+        const payloadStr = `ATTEND|${classDetails.subjectCode}|${classDetails.section}|P${classDetails.period}|${timestamp}`;
 
         new QRCode(qrContainer, { 
             text: payloadStr, 
@@ -704,7 +646,7 @@
                 <td><strong>${item.rollNo}</strong></td>
                 <td>${item.name}</td>
                 <td>${item.timestamp || 'N/A'}</td>
-                <td>${item.range || 'N/A'}</td>
+                <td class="badge-present">${item.status}</td>
             </tr>
         `).join('');
     }
@@ -740,12 +682,12 @@
             item.rollNo,
             item.name,
             item.timestamp || 'N/A',
-            item.range || 'N/A'
+            item.status
         ]);
 
         doc.autoTable({
             startY: 45,
-            head: [['S.No', 'Roll Number', 'Student Name', 'Time', 'Range']],
+            head: [['S.No', 'Roll Number', 'Student Name', 'Time', 'Status']],
             body: tableBody,
             theme: 'grid',
             headStyles: { fillColor: [37, 99, 235] },
