@@ -295,18 +295,6 @@
             grid-template-columns: 1fr 1fr;
             gap: 10px;
         }
-
-        .pin-badge {
-            background: #38bdf8;
-            color: #0f172a;
-            font-weight: 800;
-            font-size: 16px;
-            padding: 4px 12px;
-            border-radius: 8px;
-            display: inline-block;
-            margin-top: 8px;
-            letter-spacing: 2px;
-        }
     </style>
 </head>
 <body>
@@ -409,11 +397,6 @@
 
         <div id="qr-output" style="display: none; text-align: center; margin-top: 16px;">
             <div id="qr-code-container" style="display: flex; justify-content: center; background: #fff; padding: 12px; border-radius: 12px; margin: 0 auto; width: fit-content;"></div>
-            
-            <div>
-                <span style="font-size: 12px; color: #94a3b8; display: block; margin-top: 6px;">Live Board Seed Code:</span>
-                <span class="pin-badge" id="live-seed-display">SYNCING...</span>
-            </div>
 
             <div style="overflow: hidden; margin-top: 16px; margin-bottom: 8px;">
                 <h3 style="float: left; font-size: 13px; color: #cbd5e1;">Live Attendance Roster:</h3>
@@ -421,9 +404,9 @@
             </div>
 
             <table class="attendance-table">
-                <thead><tr><th>Roll No</th><th>Student Name</th><th>Status</th></tr></thead>
+                <thead><tr><th>Roll No</th><th>Name</th><th>Time</th><th>Range</th></tr></thead>
                 <tbody id="attendance-roster-body">
-                    <tr><td colspan="3" style="color: #64748b;">Waiting for live scans...</td></tr>
+                    <tr><td colspan="4" style="color: #64748b;">Waiting for live scans...</td></tr>
                 </tbody>
             </table>
 
@@ -434,7 +417,7 @@
 </div>
 
 <script>
-    const MQTT_TOPIC = "kcet/qr_attendance_system_live_v5";
+    const MQTT_TOPIC = "kcet/qr_attendance_system_live_v6";
     const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
 
     let attendanceRecords = [];
@@ -444,6 +427,7 @@
     let html5QrCode = null;
     let classDetails = {};
     let qrRefreshInterval = null;
+    let teacherLocation = null;
 
     const DEVICE_KEY = "device_bound_roll_number";
 
@@ -559,40 +543,83 @@
         }
     }
 
+    function calculateDistance(lat1, lon1, lat2, lon2) {
+        const R = 6371e3; // metres
+        const φ1 = lat1 * Math.PI/180;
+        const φ2 = lat2 * Math.PI/180;
+        const Δφ = (lat2-lat1) * Math.PI/180;
+        const Δλ = (lon2-lon1) * Math.PI/180;
+
+        const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+                  Math.cos(φ1) * Math.cos(φ2) *
+                  Math.sin(Δλ/2) * Math.sin(Δλ/2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+
+        return R * c; // in meters
+    }
+
     function onScanSuccess(decodedText) {
         const studentAlert = document.getElementById('student-alert');
         
         try {
-            // PAYLOAD: ATTEND|SubCode|Sec|Period|TimestampMS
+            // PAYLOAD: ATTEND|SubCode|Sec|Period|TimestampMS|TeacherLat|TeacherLng
             const parts = decodedText.split('|');
-            if (parts.length === 5 && parts[0] === 'ATTEND') {
-                const [_, subCode, sec, period, qrTimeStr] = parts;
+            if (parts.length >= 7 && parts[0] === 'ATTEND') {
+                const [_, subCode, sec, period, qrTimeStr, tLatStr, tLngStr] = parts;
                 const qrTimestamp = parseInt(qrTimeStr, 10);
                 const currentTimestamp = Date.now();
                 const latency = currentTimestamp - qrTimestamp;
 
-                // Time-Decay Window Check (<= 2.0 seconds)
-                if (latency > 2000) {
-                    showAlert(studentAlert, '❌ EXPIRED QR! Photos or remote video calls are rejected.', 'error');
+                // Strict 1.2-Second Time-Decay Window Check
+                if (latency > 1200) {
+                    showAlert(studentAlert, '❌ EXPIRED QR! Photos or remote video streams are rejected.', 'error');
                     return;
                 }
 
-                // Submit attendance
-                const payload = {
-                    type: 'ATTENDANCE',
-                    rollNo: loggedInUser,
-                    name: loggedInName,
-                    status: 'PRESENT'
-                };
-
-                client.publish(MQTT_TOPIC, JSON.stringify(payload));
-                showAlert(studentAlert, '✅ Attendance Verified (Physical Presence Confirmed)!', 'success');
-
-                if (html5QrCode) {
-                    html5QrCode.stop().then(() => {
-                        document.getElementById('scanner-wrapper').style.display = 'none';
-                    });
+                // Check Geolocation Proximity
+                if (!navigator.geolocation) {
+                    showAlert(studentAlert, 'Geolocation is not supported by your browser.', 'error');
+                    return;
                 }
+
+                navigator.geolocation.getCurrentPosition((position) => {
+                    const studentLat = position.coords.latitude;
+                    const studentLng = position.coords.longitude;
+                    const tLat = parseFloat(tLatStr);
+                    const tLng = parseFloat(tLngStr);
+
+                    const distance = calculateDistance(tLat, tLng, studentLat, studentLng);
+                    const maxAllowedRangeMeters = 20.0; // 20 meters classroom radius limit
+
+                    if (distance > maxAllowedRangeMeters) {
+                        showAlert(studentAlert, `❌ OUT OF RANGE! You are ${distance.toFixed(1)}m away from the teacher's computer.`, 'error');
+                        return;
+                    }
+
+                    const markTime = new Date().toLocaleTimeString();
+
+                    // Submit attendance with timestamp and distance range
+                    const payload = {
+                        type: 'ATTENDANCE',
+                        rollNo: loggedInUser,
+                        name: loggedInName,
+                        status: 'PRESENT',
+                        timestamp: markTime,
+                        range: `${distance.toFixed(1)}m`
+                    };
+
+                    client.publish(MQTT_TOPIC, JSON.stringify(payload));
+                    showAlert(studentAlert, `✅ Attendance Verified (${distance.toFixed(1)}m from board)!`, 'success');
+
+                    if (html5QrCode) {
+                        html5QrCode.stop().then(() => {
+                            document.getElementById('scanner-wrapper').style.display = 'none';
+                        });
+                    }
+                }, (err) => {
+                    showAlert(studentAlert, 'Please enable GPS location permissions to verify attendance.', 'error');
+                }, { enableHighAccuracy: true, timeout: 5000 });
+
             } else {
                 showAlert(studentAlert, 'Invalid QR format.', 'error');
             }
@@ -614,12 +641,29 @@
             period: document.getElementById('period').value
         };
 
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition((pos) => {
+                teacherLocation = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+                initQRStream();
+            }, (err) => {
+                alert("GPS Error: Teacher location required for range verification. Using fallback coordinates.");
+                teacherLocation = { lat: 13.0827, lng: 80.2707 }; // Default fallback
+                initQRStream();
+            }, { enableHighAccuracy: true });
+        } else {
+            teacherLocation = { lat: 13.0827, lng: 80.2707 };
+            initQRStream();
+        }
+    }
+
+    function initQRStream() {
         document.getElementById('qr-output').style.display = 'block';
 
         if (qrRefreshInterval) clearInterval(qrRefreshInterval);
 
         updateDynamicQR();
-        qrRefreshInterval = setInterval(updateDynamicQR, 1500);
+        // Refresh every 1.2 seconds for strict anti-proxy timing
+        qrRefreshInterval = setInterval(updateDynamicQR, 1200);
     }
 
     function updateDynamicQR() {
@@ -627,11 +671,10 @@
         qrContainer.innerHTML = '';
 
         const timestamp = Date.now();
-        const seedCode = Math.floor(10 + Math.random() * 90).toString();
+        const tLat = teacherLocation ? teacherLocation.lat : 0;
+        const tLng = teacherLocation ? teacherLocation.lng : 0;
 
-        document.getElementById('live-seed-display').innerText = `SEED [${seedCode}]`;
-
-        const payloadStr = `ATTEND|${classDetails.subjectCode}|${classDetails.section}|P${classDetails.period}|${timestamp}`;
+        const payloadStr = `ATTEND|${classDetails.subjectCode}|${classDetails.section}|P${classDetails.period}|${timestamp}|${tLat}|${tLng}`;
 
         new QRCode(qrContainer, { 
             text: payloadStr, 
@@ -654,7 +697,7 @@
         const sorted = getSortedRecords();
 
         if (sorted.length === 0) {
-            rosterBody.innerHTML = '<tr><td colspan="3" style="color: #64748b;">Waiting for live scans...</td></tr>';
+            rosterBody.innerHTML = '<tr><td colspan="4" style="color: #64748b;">Waiting for live scans...</td></tr>';
             return;
         }
 
@@ -662,7 +705,8 @@
             <tr>
                 <td><strong>${item.rollNo}</strong></td>
                 <td>${item.name}</td>
-                <td class="badge-present">${item.status}</td>
+                <td>${item.timestamp || 'N/A'}</td>
+                <td>${item.range || 'N/A'}</td>
             </tr>
         `).join('');
     }
@@ -697,20 +741,22 @@
             index + 1,
             item.rollNo,
             item.name,
-            item.status
+            item.timestamp || 'N/A',
+            item.range || 'N/A'
         ]);
 
         doc.autoTable({
             startY: 45,
-            head: [['S.No', 'Roll Number', 'Student Name', 'Status']],
+            head: [['S.No', 'Roll Number', 'Student Name', 'Time', 'Range']],
             body: tableBody,
             theme: 'grid',
             headStyles: { fillColor: [37, 99, 235] },
             columnStyles: {
-                0: { cellWidth: 20 },
-                1: { cellWidth: 40 },
-                2: { cellWidth: 90 },
-                3: { cellWidth: 30 }
+                0: { cellWidth: 15 },
+                1: { cellWidth: 35 },
+                2: { cellWidth: 70 },
+                3: { cellWidth: 35 },
+                4: { cellWidth: 35 }
             }
         });
 
