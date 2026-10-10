@@ -417,7 +417,7 @@
 </div>
 
 <script>
-    const MQTT_TOPIC = "kcet/qr_attendance_system_live_v13";
+    const MQTT_TOPIC = "kcet/qr_attendance_system_live_v15";
     const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
 
     let attendanceRecords = [];
@@ -481,10 +481,11 @@
         const alertBox = document.getElementById('login-alert');
 
         if (currentRole === 'student') {
-            // Check if this device has already submitted a successful attendance scan
-            const deviceLocked = localStorage.getItem('device_attendance_submitted');
-            if (deviceLocked === 'true') {
-                showAlert(alertBox, '❌ This device has already recorded attendance and is locked for this session.');
+            const boundRoll = localStorage.getItem('device_bound_roll');
+            
+            // If device is already bound to a specific roll number, prevent other roll numbers from logging in
+            if (boundRoll && boundRoll !== user) {
+                showAlert(alertBox, `❌ This device is bound to Roll Number ${boundRoll}. Other students cannot log in here.`);
                 return;
             }
 
@@ -513,9 +514,9 @@
         const studentAlert = document.getElementById('student-alert');
         const scannerWrapper = document.getElementById('scanner-wrapper');
 
-        // Check lock again before opening camera
-        if (localStorage.getItem('device_attendance_submitted') === 'true') {
-            showAlert(studentAlert, '❌ You have already scanned and marked present on this device.', 'error');
+        const boundRoll = localStorage.getItem('device_bound_roll');
+        if (boundRoll && boundRoll === loggedInUser && localStorage.getItem('device_attendance_submitted') === 'true') {
+            showAlert(studentAlert, '✅ You have already scanned and successfully marked attendance.', 'info');
             return;
         }
 
@@ -584,7 +585,8 @@
                     timestamp: markTime
                 };
 
-                // Lock device immediately upon successful validation to prevent duplicate submissions
+                // Bind device to this roll number and lock submission
+                localStorage.setItem('device_bound_roll', loggedInUser);
                 localStorage.setItem('device_attendance_submitted', 'true');
 
                 client.publish(MQTT_TOPIC, JSON.stringify(payload), { qos: 1 }, (err) => {
@@ -678,6 +680,7 @@
         if (confirm("Clear attendance list for this session?")) {
             client.publish(MQTT_TOPIC, JSON.stringify({ type: 'CLEAR' }));
             attendanceRecords = [];
+            localStorage.removeItem('device_bound_roll');
             localStorage.removeItem('device_attendance_submitted');
             renderRosterTable();
         }
