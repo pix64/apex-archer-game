@@ -489,7 +489,7 @@
 </div>
 
 <script>
-    const MQTT_BASE_TOPIC = "kcet/qr_attendance_multiclass_v27";
+    const MQTT_BASE_TOPIC = "kcet/qr_attendance_multiclass_v28";
     const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
 
     let attendanceRecords = [];
@@ -791,7 +791,7 @@
         if (!classDetails.subjectCode) return;
         const today = new Date().toISOString().split('T')[0];
         
-        // Exact naming format: department_section_date_period (storing explicit metadata as well)
+        // Key format: record_DEPT_YEAR_SEC_DATE_PX
         const recordKey = `record_${classDetails.department}_${classDetails.year}_${classDetails.section}_${today}_P${classDetails.period}`;
         
         const archivePayload = {
@@ -833,7 +833,7 @@
 
         allKeys.forEach(k => {
             const parts = k.replace('record_', '').split('_');
-            if (parts.length >= 6) {
+            if (parts.length >= 5) {
                 const [rDept, rYear, rSec, rDate, rPeriod] = parts;
                 
                 const matchDept = (dept === 'ALL' || rDept === dept);
