@@ -11,6 +11,7 @@
     <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
 
     <style>
         * {
@@ -326,8 +327,32 @@
 
 <div class="app-card">
 
-    <!-- LOGIN / MAIN PORTAL VIEW -->
-    <div id="login-view" class="view-section active">
+    <!-- ADMIN LOGIN VIEW (DEFAULT LANDING) -->
+    <div id="admin-login-view" class="view-section active">
+        <div class="header">
+            <h2>Admin Portal</h2>
+            <p>Enter Admin Credentials</p>
+        </div>
+
+        <form onsubmit="handleAdminLogin(event)">
+            <div class="form-group">
+                <label>Admin ID</label>
+                <input type="text" id="admin-login-id" placeholder="Enter Admin ID" required oninput="this.value = this.value.toUpperCase()">
+            </div>
+            <div class="form-group">
+                <label>Password</label>
+                <input type="password" id="admin-login-pass" placeholder="Enter Password" required>
+            </div>
+            <button type="submit" class="submit-btn" style="background: #2563eb;">Login as Admin</button>
+        </form>
+        <div style="text-align: center; margin-top: 14px;">
+            <button type="button" class="logout-btn" onclick="switchToPortal()" style="font-size: 13px;">Switch to Student / Teacher / Records Portal &rarr;</button>
+        </div>
+        <div id="admin-login-alert" class="alert-box error"></div>
+    </div>
+
+    <!-- GENERAL LOGIN / PORTAL SWITCH VIEW -->
+    <div id="login-view" class="view-section">
         <div class="header">
             <h2>Attendance Portal</h2>
             <p>Select portal mode</p>
@@ -336,7 +361,6 @@
         <div class="role-selector">
             <button type="button" class="role-btn active" id="btn-role-student" onclick="setRole('student')">Student</button>
             <button type="button" class="role-btn" id="btn-role-teacher" onclick="setRole('teacher')">Teacher</button>
-            <button type="button" class="role-btn" id="btn-role-admin" onclick="setRole('admin')">Admin</button>
             <button type="button" class="role-btn" id="btn-role-records" onclick="setRole('records')">Records</button>
             <button type="button" class="role-btn" id="btn-role-track" onclick="setRole('track')">Track</button>
         </div>
@@ -363,7 +387,7 @@
 
                 <div class="form-group" id="group-fullname" style="display: none;">
                     <label>Full Name</label>
-                    <input type="text" id="user-fullname" placeholder="Enter Full Name">
+                    <input type="text" id="user-fullname" placeholder="Enter Full Name" oninput="this.value = this.value.toUpperCase()">
                 </div>
                 <div class="form-group">
                     <label id="id-label">Roll Number</label>
@@ -375,6 +399,9 @@
                 </div>
                 <button type="submit" class="submit-btn" id="login-submit-btn">Login</button>
             </form>
+            <div style="text-align: center; margin-top: 14px;">
+                <button type="button" class="logout-btn" onclick="switchToAdminLogin()" style="font-size: 13px;">&larr; Back to Admin Login</button>
+            </div>
             <div id="login-alert" class="alert-box error"></div>
         </div>
     </div>
@@ -468,7 +495,7 @@
     <div id="admin-view" class="view-section">
         <div class="user-info-bar">
             <div><strong>Admin Dashboard</strong></div>
-            <button type="button" class="logout-btn" onclick="logout()">Logout</button>
+            <button type="button" class="logout-btn" onclick="switchToAdminLogin()">Logout</button>
         </div>
 
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
@@ -478,7 +505,7 @@
 
         <div id="admin-classes-list"></div>
 
-        <!-- Add / Edit Modal Form (Hidden by default) -->
+        <!-- Add / Edit Modal Form -->
         <div id="admin-form-modal" style="display: none; background: #0f172a; padding: 14px; border-radius: 12px; border: 1px solid #334155; margin-top: 14px;">
             <h3 id="modal-title" style="font-size: 14px; color: #38bdf8; margin-bottom: 10px;">Add New Classroom</h3>
             <form onsubmit="handleSaveClassStudents(event)">
@@ -496,10 +523,17 @@
                     <label>Section</label>
                     <input type="text" id="admin-sec" placeholder="e.g. A" required oninput="this.value = this.value.toUpperCase()">
                 </div>
+                
                 <div class="form-group">
-                    <label>Student Roster PDF / Text (Format per line: S_NO=NAME=ROLLNUMBER=PASSWORD)</label>
-                    <textarea id="admin-student-list" placeholder="1=JOHN DOE=22CSE01=PASS123&#10;2=JANE SMITH=22CSE02=PASS456" required></textarea>
+                    <label>Upload Student PDF File</label>
+                    <input type="file" id="admin-pdf-file" accept="application/pdf" onchange="handleStudentPDFUpload(event)" style="font-size: 12px; padding: 6px;">
                 </div>
+
+                <div class="form-group">
+                    <label>Or Manual Entry (S_NO = NAME = ROLLNUMBER = PASSWORD)</label>
+                    <textarea id="admin-student-list" placeholder="1 = JOHN DOE = 22CSE01 = PASS123&#10;2 = JANE SMITH = 22CSE02 = PASS456"></textarea>
+                </div>
+
                 <button type="submit" class="submit-btn" style="background: #16a34a;">Save Classroom</button>
                 <button type="button" class="submit-btn" style="background: #64748b; margin-top: 6px;" onclick="closeAddClassModal()">Cancel</button>
             </form>
@@ -511,7 +545,7 @@
     <div id="records-view" class="view-section">
         <div class="user-info-bar">
             <div><strong>Attendance Record Archive</strong></div>
-            <button type="button" class="logout-btn" onclick="switchView('login-view')">Back</button>
+            <button type="button" class="logout-btn" onclick="setRole('student')">Back</button>
         </div>
 
         <div class="header">
@@ -556,7 +590,7 @@
     <div id="track-view" class="view-section">
         <div class="user-info-bar">
             <div><strong>Session Tracking Dashboard</strong></div>
-            <button type="button" class="logout-btn" onclick="switchView('login-view')">Back</button>
+            <button type="button" class="logout-btn" onclick="setRole('student')">Back</button>
         </div>
 
         <div class="header">
@@ -570,7 +604,7 @@
 </div>
 
 <script>
-    const MQTT_BASE_TOPIC = "kcet/qr_attendance_multiclass_v30";
+    const MQTT_BASE_TOPIC = "kcet/qr_attendance_multiclass_v31";
     const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
 
     let attendanceRecords = [];
@@ -627,9 +661,34 @@
         }
     }
 
+    function switchToAdminLogin() {
+        switchView('admin-login-view');
+    }
+
+    function switchToPortal() {
+        setRole('student');
+    }
+
+    function handleAdminLogin(e) {
+        e.preventDefault();
+        const adminId = document.getElementById('admin-login-id').value.trim().toUpperCase();
+        const pass = document.getElementById('admin-login-pass').value.trim();
+        const alertBox = document.getElementById('admin-login-alert');
+
+        if (adminId && pass === adminId) {
+            loggedInUser = adminId;
+            loggedInName = 'ADMIN';
+            switchView('admin-view');
+            renderAdminClasses();
+        } else {
+            alertBox.style.display = 'block';
+            alertBox.innerText = 'Admin ID and Password must match!';
+        }
+    }
+
     function setRole(role) {
         currentRole = role;
-        ['student', 'teacher', 'admin', 'records', 'track'].forEach(r => {
+        ['student', 'teacher', 'records', 'track'].forEach(r => {
             const btn = document.getElementById(`btn-role-${r}`);
             if (btn) btn.classList.toggle('active', r === role);
         });
@@ -643,9 +702,6 @@
         } else if (role === 'track') {
             switchView('track-view');
             renderTrackDashboard();
-        } else if (role === 'admin') {
-            switchView('admin-view');
-            renderAdminClasses();
         } else {
             switchView('login-view');
             if (formContainer) formContainer.style.display = 'block';
@@ -653,11 +709,11 @@
             if (role === 'student') {
                 studentClassFields.style.display = 'block';
                 groupFullname.style.display = 'none';
-                document.getElementById('id-label').innerText = 'Roll Number';
+                document.getElementById('id-label').innerText = 'ROLL NUMBER';
             } else if (role === 'teacher') {
                 studentClassFields.style.display = 'none';
                 groupFullname.style.display = 'block';
-                document.getElementById('id-label').innerText = 'Employee ID';
+                document.getElementById('id-label').innerText = 'EMPLOYEE ID';
             }
         }
     }
@@ -677,7 +733,7 @@
             const rosterJSON = localStorage.getItem(rosterKey);
 
             if (!rosterJSON) {
-                showAlert(alertBox, `No registered student roster found for ${dept} - ${year} Year - Section ${sec}. Please contact Admin.`);
+                showAlert(alertBox, `NO REGISTERED STUDENT ROSTER FOUND FOR ${dept} - ${year} YEAR - SECTION ${sec}.`);
                 return;
             }
 
@@ -691,7 +747,7 @@
                 document.getElementById('student-display-id').innerText = loggedInUser;
                 switchView('student-view');
             } else {
-                showAlert(alertBox, 'Invalid Roll Number, Password, or Class details!');
+                showAlert(alertBox, 'INVALID ROLL NUMBER, PASSWORD, OR CLASS DETAILS!');
             }
         } else if (currentRole === 'teacher') {
             loggedInName = document.getElementById('user-fullname').value.trim().toUpperCase();
@@ -705,29 +761,43 @@
                 switchView('teacher-view');
                 renderRosterTable();
             } else {
-                showAlert(alertBox, 'Use format: [Year]@[ID]');
-            }
-        } else if (currentRole === 'admin') {
-            const adminId = document.getElementById('username').value.trim().toUpperCase();
-            const pass = document.getElementById('password').value.trim();
-
-            if (adminId && pass === adminId) {
-                loggedInUser = adminId;
-                loggedInName = 'ADMIN';
-                switchView('admin-view');
-                renderAdminClasses();
-            } else {
-                showAlert(alertBox, 'Admin ID and Password must match!');
+                showAlert(alertBox, 'USE FORMAT: [YEAR]@[ID]');
             }
         }
     }
 
+    async function handleStudentPDFUpload(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = async function() {
+            const typedarray = new Uint8Array(this.result);
+            try {
+                const pdf = await pdfjsLib.getDocument(typedarray).promise;
+                let fullText = '';
+                for (let i = 1; i <= pdf.numPages; i++) {
+                    const page = await pdf.getPage(i);
+                    const textContent = await page.getTextContent();
+                    const pageText = textContent.items.map(item => item.str).join(' ');
+                    fullText += pageText + '\n';
+                }
+                document.getElementById('admin-student-list').value = fullText.toUpperCase();
+            } catch(err) {
+                console.error(err);
+                alert('Error parsing PDF file.');
+            }
+        };
+        reader.readAsArrayBuffer(file);
+    }
+
     function openAddClassModal() {
-        document.getElementById('modal-title').innerText = 'Add New Classroom';
+        document.getElementById('modal-title').innerText = 'ADD NEW CLASSROOM';
         document.getElementById('admin-dept').value = '';
         document.getElementById('admin-year').value = '';
         document.getElementById('admin-sec').value = '';
         document.getElementById('admin-student-list').value = '';
+        document.getElementById('admin-pdf-file').value = '';
         document.getElementById('admin-form-modal').style.display = 'block';
     }
 
@@ -750,7 +820,7 @@
             const parts = line.split('=');
             if (parts.length >= 4) {
                 roster.push({
-                    sNo: parts[0].trim(),
+                    sNo: parts[0].trim().toUpperCase(),
                     name: parts[1].trim().toUpperCase(),
                     rollNo: parts[2].trim().toUpperCase(),
                     password: parts[3].trim()
@@ -760,7 +830,7 @@
 
         if (roster.length === 0) {
             alertBox.className = 'alert-box error';
-            alertBox.innerText = 'Invalid format! Ensure lines follow S_NO=NAME=ROLLNUMBER=PASSWORD';
+            alertBox.innerText = 'INVALID FORMAT! ENSURE LINES FOLLOW S_NO = NAME = ROLLNUMBER = PASSWORD';
             alertBox.style.display = 'block';
             return;
         }
@@ -769,7 +839,7 @@
         localStorage.setItem(rosterKey, JSON.stringify(roster));
 
         alertBox.className = 'alert-box success';
-        alertBox.innerText = `Successfully saved ${roster.length} students for ${dept} - ${year} Year - Section ${sec}!`;
+        alertBox.innerText = `SUCCESSFULLY SAVED ${roster.length} STUDENTS FOR ${dept} - ${year} YEAR - SECTION ${sec}!`;
         alertBox.style.display = 'block';
         closeAddClassModal();
         renderAdminClasses();
@@ -780,7 +850,7 @@
         const keys = Object.keys(localStorage).filter(k => k.startsWith('roster_'));
 
         if (keys.length === 0) {
-            container.innerHTML = '<p style="color: #64748b; text-align: center; padding: 20px;">No classrooms created yet. Click "+ Add New Classroom" above.</p>';
+            container.innerHTML = '<p style="color: #64748b; text-align: center; padding: 20px;">NO CLASSROOMS CREATED YET. CLICK "+ ADD NEW CLASSROOM" ABOVE.</p>';
             return;
         }
 
@@ -794,10 +864,10 @@
             return `
                 <div class="class-block" onclick="editClassroom('${dept}', '${year}', '${sec}')">
                     <div>
-                        <strong>${dept} - ${year} Year (Sec ${sec})</strong><br>
-                        <span style="color: #94a3b8; font-size: 11px;">${roster.length} Registered Students</span>
+                        <strong>${dept} - ${year} YEAR (SEC ${sec})</strong><br>
+                        <span style="color: #94a3b8; font-size: 11px;">${roster.length} REGISTERED STUDENTS</span>
                     </div>
-                    <span style="color: #38bdf8; font-size: 12px; font-weight: 700;">Edit &rarr;</span>
+                    <span style="color: #38bdf8; font-size: 12px; font-weight: 700;">EDIT &rarr;</span>
                 </div>
             `;
         }).join('');
@@ -807,13 +877,14 @@
         const rosterKey = `roster_${dept}_${year}_${sec}`;
         const roster = JSON.parse(localStorage.getItem(rosterKey) || '[]');
         
-        const rawText = roster.map(s => `${s.sNo}=${s.name}=${s.rollNo}=${s.password}`).join('\n');
+        const rawText = roster.map(s => `${s.sNo} = ${s.name} = ${s.rollNo} = ${s.password}`).join('\n');
 
-        document.getElementById('modal-title').innerText = `Edit Class: ${dept} - ${year} - ${sec}`;
+        document.getElementById('modal-title').innerText = `EDIT CLASS: ${dept} - ${year} - ${sec}`;
         document.getElementById('admin-dept').value = dept;
         document.getElementById('admin-year').value = year;
         document.getElementById('admin-sec').value = sec;
         document.getElementById('admin-student-list').value = rawText;
+        document.getElementById('admin-pdf-file').value = '';
         document.getElementById('admin-form-modal').style.display = 'block';
     }
 
@@ -821,7 +892,7 @@
         const studentAlert = document.getElementById('student-alert');
         const scannerWrapper = document.getElementById('scanner-wrapper');
 
-        showAlert(studentAlert, 'Activating live camera...', 'info');
+        showAlert(studentAlert, 'ACTIVATING LIVE CAMERA...', 'info');
 
         try {
             if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
@@ -852,11 +923,11 @@
                 );
             });
 
-            showAlert(studentAlert, 'Scanner active! Point camera directly at classroom board.', 'info');
+            showAlert(studentAlert, 'SCANNER ACTIVE! POINT CAMERA DIRECTLY AT CLASSROOM BOARD.', 'info');
 
         } catch (err) {
             console.error(err);
-            showAlert(studentAlert, 'Camera Error: Enable permissions and refresh.', 'error');
+            showAlert(studentAlert, 'CAMERA ERROR: ENABLE PERMISSIONS AND REFRESH.', 'error');
         }
     }
 
@@ -876,7 +947,7 @@
                 const latency = currentTimestamp - qrTimestamp;
 
                 if (latency > 1200) {
-                    showAlert(studentAlert, '❌ EXPIRED QR! Photos or remote video calls are rejected.', 'error');
+                    showAlert(studentAlert, '❌ EXPIRED QR! PHOTOS OR REMOTE VIDEO CALLS ARE REJECTED.', 'error');
                     return;
                 }
 
@@ -884,7 +955,7 @@
                 const rollSessionKey = `roll_scanned_${sessionSalt}_${loggedInUser}`;
 
                 if (localStorage.getItem(deviceSessionKey) === 'true') {
-                    showAlert(studentAlert, `❌ This device has already submitted attendance for this active session!`, 'error');
+                    showAlert(studentAlert, `❌ THIS DEVICE HAS ALREADY SUBMITTED ATTENDANCE FOR THIS ACTIVE SESSION!`, 'error');
                     if (html5QrCode) {
                         html5QrCode.stop().then(() => {
                             document.getElementById('scanner-wrapper').style.display = 'none';
@@ -894,7 +965,7 @@
                 }
 
                 if (localStorage.getItem(rollSessionKey) === 'true') {
-                    showAlert(studentAlert, `❌ You have already scanned and marked present for roll number ${loggedInUser} in this session!`, 'error');
+                    showAlert(studentAlert, `❌ YOU HAVE ALREADY SCANNED AND MARKED PRESENT FOR ROLL NUMBER ${loggedInUser} IN THIS SESSION!`, 'error');
                     if (html5QrCode) {
                         html5QrCode.stop().then(() => {
                             document.getElementById('scanner-wrapper').style.display = 'none';
@@ -925,7 +996,7 @@
 
                 handleIncomingData(payloadString);
                 
-                showAlert(studentAlert, '✅ Attendance Verified and Marked Present!', 'success');
+                showAlert(studentAlert, '✅ ATTENDANCE VERIFIED AND MARKED PRESENT!', 'success');
 
                 if (html5QrCode) {
                     html5QrCode.stop().then(() => {
@@ -1001,7 +1072,7 @@
             period: classDetails.period,
             date: today,
             startTime: sessionStartTime ? sessionStartTime.toLocaleTimeString() : new Date().toLocaleTimeString(),
-            endTime: status === 'ENDED' ? new Date().toLocaleTimeString() : 'Running...',
+            endTime: status === 'ENDED' ? new Date().toLocaleTimeString() : 'RUNNING...',
             status: status,
             submitted: submitted,
             recordsCount: attendanceRecords.length
@@ -1029,7 +1100,7 @@
         if (qrRefreshInterval) clearInterval(qrRefreshInterval);
         if (html5QrCode) { try { html5QrCode.stop(); } catch(e){} }
 
-        alert("Attendance successfully submitted and archived under Attendance Records!");
+        alert("ATTENDANCE SUCCESSFULLY SUBMITTED AND ARCHIVED UNDER ATTENDANCE RECORDS!");
         document.getElementById('qr-output').style.display = 'none';
     }
 
@@ -1044,7 +1115,7 @@
         const searchResultsDiv = document.getElementById('record-search-results');
 
         if (!dept || !year || !sec || !date || !period) {
-            showAlert(alertBox, 'Please fill in all search fields (use ALL for wildcard).');
+            showAlert(alertBox, 'PLEASE FILL IN ALL SEARCH FIELDS (USE ALL FOR WILDCARD).');
             searchResultsDiv.style.display = 'none';
             return;
         }
@@ -1070,7 +1141,7 @@
         });
 
         if (matchedRecords.length === 0) {
-            showAlert(alertBox, `No attendance records found matching criteria.`);
+            showAlert(alertBox, `NO ATTENDANCE RECORDS FOUND MATCHING CRITERIA.`);
             searchResultsDiv.style.display = 'none';
             return;
         }
@@ -1082,12 +1153,12 @@
         matchedRecords.forEach((parsed) => {
             htmlHTML += `
                 <div style="background: #0f172a; padding: 12px; border-radius: 10px; margin-bottom: 14px; border: 1px solid #334155;">
-                    <h3 style="font-size: 13px; color: #38bdf8; margin-bottom: 4px;">File: ${parsed.classDetails.department}_${parsed.classDetails.year}_${parsed.classDetails.section}_${parsed.date}_P${parsed.classDetails.period} (${parsed.records.length} Present)</h3>
-                    <p style="font-size: 11px; color: #94a3b8; margin-bottom: 8px;">Subject: ${parsed.classDetails.subject} (${parsed.classDetails.subjectCode}) | Teacher: ${parsed.submittedBy}</p>
+                    <h3 style="font-size: 13px; color: #38bdf8; margin-bottom: 4px;">FILE: ${parsed.classDetails.department}_${parsed.classDetails.year}_${parsed.classDetails.section}_${parsed.date}_P${parsed.classDetails.period} (${parsed.records.length} PRESENT)</h3>
+                    <p style="font-size: 11px; color: #94a3b8; margin-bottom: 8px;">SUBJECT: ${parsed.classDetails.subject} (${parsed.classDetails.subjectCode}) | TEACHER: ${parsed.submittedBy}</p>
                     <table class="attendance-table">
-                        <thead><tr><th>Roll No</th><th>Name</th><th>Time</th><th>Status</th></tr></thead>
+                        <thead><tr><th>ROLL NO</th><th>NAME</th><th>TIME</th><th>STATUS</th></tr></thead>
                         <tbody>
-                            ${parsed.records.length === 0 ? '<tr><td colspan="4" style="color: #64748b;">No students marked present.</td></tr>' : 
+                            ${parsed.records.length === 0 ? '<tr><td colspan="4" style="color: #64748b;">NO STUDENTS MARKED PRESENT.</td></tr>' : 
                               parsed.records.map(item => `
                                 <tr>
                                     <td><strong>${item.rollNo}</strong></td>
@@ -1123,8 +1194,8 @@
             }
 
             doc.setFontSize(12);
-            doc.text(`Department: ${parsed.classDetails.department} | Class/Year: ${parsed.classDetails.year} | Section: ${parsed.classDetails.section}`, 14, startY);
-            doc.text(`Subject: ${parsed.classDetails.subject} | Date: ${parsed.date} | Period: P${parsed.classDetails.period}`, 14, startY + 7);
+            doc.text(`DEPARTMENT: ${parsed.classDetails.department} | CLASS/YEAR: ${parsed.classDetails.year} | SECTION: ${parsed.classDetails.section}`, 14, startY);
+            doc.text(`SUBJECT: ${parsed.classDetails.subject} | DATE: ${parsed.date} | PERIOD: P${parsed.classDetails.period}`, 14, startY + 7);
 
             const tableBody = parsed.records.map((item, index) => [
                 index + 1, item.rollNo, item.name, item.timestamp || 'N/A', item.status
@@ -1132,14 +1203,14 @@
 
             doc.autoTable({
                 startY: startY + 12,
-                head: [['S.No', 'Roll Number', 'Student Name', 'Time', 'Status']],
+                head: [['S.NO', 'ROLL NUMBER', 'STUDENT NAME', 'TIME', 'STATUS']],
                 body: tableBody,
                 theme: 'grid',
                 headStyles: { fillColor: [37, 99, 235] }
             });
         });
 
-        doc.save(`Consolidated_Attendance_Report.pdf`);
+        doc.save(`CONSOLIDATED_ATTENDANCE_REPORT.pdf`);
     }
 
     function renderTrackDashboard() {
@@ -1147,7 +1218,7 @@
         const keys = Object.keys(localStorage).filter(k => k.startsWith('session_track_'));
 
         if (keys.length === 0) {
-            container.innerHTML = '<p style="color: #64748b; text-align: center; padding: 20px;">No session history tracked yet.</p>';
+            container.innerHTML = '<p style="color: #64748b; text-align: center; padding: 20px;">NO SESSION HISTORY TRACKED YET.</p>';
             return;
         }
 
@@ -1155,11 +1226,11 @@
             const data = JSON.parse(localStorage.getItem(k));
             return `
                 <div style="background: #0f172a; padding: 12px; border-radius: 10px; margin-bottom: 8px; border: 1px solid #334155;">
-                    <strong>${data.department} - ${data.year} Year (Sec ${data.section})</strong> (${data.subjectCode})<br>
-                    <span style="color: #94a3b8;">Teacher: ${data.teacherName} | Period: P${data.period}</span><br>
-                    <span style="color: #94a3b8;">Started: ${data.startTime} | Ended: ${data.endTime}</span><br>
-                    Status: <strong style="color: ${data.status === 'RUNNING' ? '#38bdf8' : '#4ade80'}">${data.status}</strong> | 
-                    Submitted: <strong style="color: ${data.submitted ? '#4ade80' : '#ef4444'}">${data.submitted ? 'Yes' : 'No'}</strong>
+                    <strong>${data.department} - ${data.year} YEAR (SEC ${data.section})</strong> (${data.subjectCode})<br>
+                    <span style="color: #94a3b8;">TEACHER: ${data.teacherName} | PERIOD: P${data.period}</span><br>
+                    <span style="color: #94a3b8;">STARTED: ${data.startTime} | ENDED: ${data.endTime}</span><br>
+                    STATUS: <strong style="color: ${data.status === 'RUNNING' ? '#38bdf8' : '#4ade80'}">${data.status}</strong> | 
+                    SUBMITTED: <strong style="color: ${data.submitted ? '#4ade80' : '#ef4444'}">${data.submitted ? 'YES' : 'NO'}</strong>
                 </div>
             `;
         }).join('');
@@ -1178,7 +1249,7 @@
         const sorted = getSortedRecords();
 
         if (sorted.length === 0) {
-            rosterBody.innerHTML = '<tr><td colspan="4" style="color: #64748b;">Waiting for live scans...</td></tr>';
+            rosterBody.innerHTML = '<tr><td colspan="4" style="color: #64748b;">WAITING FOR LIVE SCANS...</td></tr>';
             return;
         }
 
@@ -1193,7 +1264,7 @@
     }
 
     function clearRoster() {
-        if (confirm("Clear attendance list for this session?")) {
+        if (confirm("CLEAR ATTENDANCE LIST FOR THIS SESSION?")) {
             const sessionID = `${classDetails.department}_${classDetails.year}_${classDetails.section}_P${classDetails.period}`;
             const clearPayload = JSON.stringify({ topic: activeSessionTopic, type: 'CLEAR' });
             client.publish(activeSessionTopic, clearPayload);
@@ -1215,14 +1286,14 @@
         doc.text("CLASS ATTENDANCE REPORT (VERIFIED PHYSICAL PRESENCE)", 14, 15);
 
         doc.setFontSize(10);
-        doc.text(`Department: ${classDetails.department || 'N/A'} | Class/Year: ${classDetails.year || 'N/A'} | Section: ${classDetails.section || 'N/A'}`, 14, 25);
-        doc.text(`Period: Period ${classDetails.period || 'N/A'}`, 120, 25);
+        doc.text(`DEPARTMENT: ${classDetails.department || 'N/A'} | CLASS/YEAR: ${classDetails.year || 'N/A'} | SECTION: ${classDetails.section || 'N/A'}`, 14, 25);
+        doc.text(`PERIOD: PERIOD ${classDetails.period || 'N/A'}`, 120, 25);
         
-        doc.text(`Subject: ${classDetails.subject || 'N/A'} (${classDetails.subjectCode || 'N/A'})`, 14, 32);
-        doc.text(`Topic: ${classDetails.topic || 'N/A'}`, 120, 32);
+        doc.text(`SUBJECT: ${classDetails.subject || 'N/A'} (${classDetails.subjectCode || 'N/A'})`, 14, 32);
+        doc.text(`TOPIC: ${classDetails.topic || 'N/A'}`, 120, 32);
 
-        doc.text(`Faculty Name: ${loggedInName} (ID: ${loggedInUser})`, 14, 39);
-        doc.text(`Total Students Present: ${presentCount}`, 120, 39);
+        doc.text(`FACULTY NAME: ${loggedInName} (ID: ${loggedInUser})`, 14, 39);
+        doc.text(`TOTAL STUDENTS PRESENT: ${presentCount}`, 120, 39);
 
         const tableBody = sorted.map((item, index) => [
             index + 1,
@@ -1234,7 +1305,7 @@
 
         doc.autoTable({
             startY: 45,
-            head: [['S.No', 'Roll Number', 'Student Name', 'Time', 'Status']],
+            head: [['S.NO', 'ROLL NUMBER', 'STUDENT NAME', 'TIME', 'STATUS']],
             body: tableBody,
             theme: 'grid',
             headStyles: { fillColor: [37, 99, 235] },
@@ -1247,7 +1318,7 @@
             }
         });
 
-        doc.save(`Attendance_${classDetails.subjectCode || 'Session'}_P${classDetails.period || '1'}.pdf`);
+        doc.save(`ATTENDANCE_${classDetails.subjectCode || 'SESSION'}_P${classDetails.period || '1'}.pdf`);
     }
 
     function switchView(viewId) {
@@ -1263,7 +1334,7 @@
             } catch(e){} 
         }
         if (qrRefreshInterval) clearInterval(qrRefreshInterval);
-        setRole('student');
+        switchToAdminLogin();
     }
 
     function showAlert(el, msg, type = 'error') {
