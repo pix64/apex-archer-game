@@ -417,7 +417,7 @@
 </div>
 
 <script>
-    const MQTT_BASE_TOPIC = "kcet/qr_attendance_multiclass_v23";
+    const MQTT_BASE_TOPIC = "kcet/qr_attendance_multiclass_v24";
     const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
 
     let attendanceRecords = [];
@@ -573,7 +573,6 @@
                     return;
                 }
 
-                // Unique tracking keys bound specifically to this active session salt
                 const deviceSessionKey = `device_scanned_${sessionSalt}`;
                 const rollSessionKey = `roll_scanned_${sessionSalt}_${loggedInUser}`;
 
@@ -609,7 +608,6 @@
                     timestamp: markTime
                 };
 
-                // Lock device and roll number for this specific session instance
                 localStorage.setItem(deviceSessionKey, 'true');
                 localStorage.setItem(rollSessionKey, 'true');
 
@@ -628,9 +626,7 @@
                     });
                 }
             }
-        } catch(e) {
-            // Silent catch
-        }
+        } catch(e) {}
     }
 
     function onScanFailure(error) {}
@@ -646,8 +642,8 @@
             period: document.getElementById('period').value.trim()
         };
 
-        // Generate a fresh unique session salt every time a teacher starts/restarts a session
-        currentSessionSalt = 's_' + Math.random().toString(36).substring(2, 9) + Date.now().toString(36);
+        // Guaranteed unique collision-free session salt bound to Teacher's Employee ID + Timestamp + Random String
+        currentSessionSalt = `s_${loggedInUser}_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 9)}`;
 
         activeSessionTopic = `${MQTT_BASE_TOPIC}/${classDetails.subjectCode}_${classDetails.section}_P${classDetails.period}`;
         client.subscribe(activeSessionTopic);
