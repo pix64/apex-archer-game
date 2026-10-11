@@ -526,16 +526,20 @@
                 </div>
                 
                 <div class="form-group">
-                    <label>Upload Student File (Excel, CSV, or PDF)</label>
-                    <input type="file" id="admin-student-file" accept=".xlsx, .xls, .csv, application/pdf" onchange="handleStudentFileUpload(event)" style="font-size: 12px; padding: 6px;">
+                    <label>Upload Student File (.TXT, .XLSX, .CSV, .PDF)</label>
+                    <input type="file" id="admin-student-file" accept=".txt, .xlsx, .xls, .csv, application/pdf" onchange="handleStudentFileUpload(event)" style="font-size: 12px; padding: 6px;">
+                    <div id="stored-file-badge" style="font-size: 11px; color: #38bdf8; margin-top: 4px; display: none;"></div>
                 </div>
 
                 <div class="form-group">
-                    <label>Or Manual Entry (S.NO = NAME = ROLLNUMBER = PASSWORD)</label>
-                    <textarea id="admin-student-list" placeholder="1 = JOHN DOE = 22CSE01 = PASS123&#10;2 = JANE SMITH = 22CSE02 = PASS456"></textarea>
+                    <label>Student Roster Content (Editable)</label>
+                    <textarea id="admin-student-list" placeholder="1 = JOHN DOE = 22CSE01 = PASS123&#10;2 = JANE SMITH = 22CSE02 = PASS456" required></textarea>
                 </div>
 
-                <button type="submit" class="submit-btn" style="background: #16a34a;">Save Classroom</button>
+                <div style="display: flex; gap: 6px;">
+                    <button type="submit" class="submit-btn" style="background: #16a34a; flex: 1;">Save Classroom</button>
+                    <button type="button" class="submit-btn" style="background: #ef4444; flex: 1; margin-top: 6px;" onclick="removeStoredFile()">Remove File / Data</button>
+                </div>
                 <button type="button" class="submit-btn" style="background: #64748b; margin-top: 6px;" onclick="closeAddClassModal()">Cancel</button>
             </form>
         </div>
@@ -605,7 +609,7 @@
 </div>
 
 <script>
-    const MQTT_BASE_TOPIC = "kcet/qr_attendance_multiclass_v32";
+    const MQTT_BASE_TOPIC = "kcet/qr_attendance_multiclass_v34";
     const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
 
     let attendanceRecords = [];
@@ -772,9 +776,21 @@
         if (!file) return;
 
         const fileName = file.name.toLowerCase();
+        const badge = document.getElementById('stored-file-badge');
+        badge.style.display = 'block';
+        badge.innerText = `Loaded File: ${file.name}`;
 
-        if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls') || fileName.endsWith('.csv')) {
-            const reader = new FileReader();
+        const reader = new FileReader();
+
+        if (fileName.endsWith('.txt') || fileName.endsWith('.csv')) {
+            reader.onload = function(e) {
+                const raw = e.target.result.toUpperCase();
+                document.getElementById('admin-student-list').value = raw;
+                window.currentStoredFileRaw = raw;
+                window.currentStoredFileName = file.name;
+            };
+            reader.readAsText(file);
+        } else if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
             reader.onload = function(e) {
                 try {
                     const data = new Uint8Array(e.target.result);
@@ -790,15 +806,17 @@
                             formattedText += `${filtered[0]} = ${filtered[1]} = ${filtered[2]} = ${filtered[3]}\n`;
                         }
                     });
-                    document.getElementById('admin-student-list').value = formattedText.toUpperCase();
+                    const raw = formattedText.toUpperCase();
+                    document.getElementById('admin-student-list').value = raw;
+                    window.currentStoredFileRaw = raw;
+                    window.currentStoredFileName = file.name;
                 } catch(err) {
                     console.error(err);
-                    alert('Error parsing Excel/CSV file.');
+                    alert('Error parsing Excel file.');
                 }
             };
             reader.readAsArrayBuffer(file);
         } else if (fileName.endsWith('.pdf')) {
-            const reader = new FileReader();
             reader.onload = async function() {
                 const typedarray = new Uint8Array(this.result);
                 try {
@@ -810,7 +828,10 @@
                         const pageText = textContent.items.map(item => item.str).join(' ');
                         fullText += pageText + '\n';
                     }
-                    document.getElementById('admin-student-list').value = fullText.toUpperCase();
+                    const raw = fullText.toUpperCase();
+                    document.getElementById('admin-student-list').value = raw;
+                    window.currentStoredFileRaw = raw;
+                    window.currentStoredFileName = file.name;
                 } catch(err) {
                     console.error(err);
                     alert('Error parsing PDF file.');
@@ -820,6 +841,16 @@
         }
     }
 
+    function removeStoredFile() {
+        document.getElementById('admin-student-file').value = '';
+        document.getElementById('admin-student-list').value = '';
+        const badge = document.getElementById('stored-file-badge');
+        badge.style.display = 'none';
+        badge.innerText = '';
+        window.currentStoredFileRaw = '';
+        window.currentStoredFileName = '';
+    }
+
     function openAddClassModal() {
         document.getElementById('modal-title').innerText = 'ADD NEW CLASSROOM';
         document.getElementById('admin-dept').value = '';
@@ -827,6 +858,9 @@
         document.getElementById('admin-sec').value = '';
         document.getElementById('admin-student-list').value = '';
         document.getElementById('admin-student-file').value = '';
+        document.getElementById('stored-file-badge').style.display = 'none';
+        window.currentStoredFileRaw = '';
+        window.currentStoredFileName = '';
         document.getElementById('admin-form-modal').style.display = 'block';
     }
 
@@ -864,8 +898,14 @@
             return;
         }
 
+        const classData = {
+            roster: roster,
+            storedFileName: window.currentStoredFileName || 'MANUAL_ENTRY',
+            storedFileRaw: rawText
+        };
+
         const rosterKey = `roster_${dept}_${year}_${sec}`;
-        localStorage.setItem(rosterKey, JSON.stringify(roster));
+        localStorage.setItem(rosterKey, JSON.stringify(classData));
 
         alertBox.className = 'alert-box success';
         alertBox.innerText = `SUCCESSFULLY SAVED ${roster.length} STUDENTS FOR ${dept} - ${year} YEAR - SECTION ${sec}!`;
@@ -888,13 +928,14 @@
             const dept = parts[0];
             const year = parts[1];
             const sec = parts[2];
-            const roster = JSON.parse(localStorage.getItem(k));
+            const savedObj = JSON.parse(localStorage.getItem(k));
+            const roster = savedObj.roster || savedObj; // backward compatibility
 
             return `
                 <div class="class-block" onclick="editClassroom('${dept}', '${year}', '${sec}')">
                     <div>
                         <strong>${dept} - ${year} YEAR (SEC ${sec})</strong><br>
-                        <span style="color: #94a3b8; font-size: 11px;">${roster.length} REGISTERED STUDENTS</span>
+                        <span style="color: #94a3b8; font-size: 11px;">${roster.length} REGISTERED STUDENTS | File: ${savedObj.storedFileName || 'MANUAL'}</span>
                     </div>
                     <span style="color: #38bdf8; font-size: 12px; font-weight: 700;">EDIT &rarr;</span>
                 </div>
@@ -904,9 +945,10 @@
 
     function editClassroom(dept, year, sec) {
         const rosterKey = `roster_${dept}_${year}_${sec}`;
-        const roster = JSON.parse(localStorage.getItem(rosterKey) || '[]');
+        const savedObj = JSON.parse(localStorage.getItem(rosterKey) || '{}');
+        const roster = savedObj.roster || (Array.isArray(savedObj) ? savedObj : []);
         
-        const rawText = roster.map(s => `${s.sNo} = ${s.name} = ${s.rollNo} = ${s.password}`).join('\n');
+        const rawText = savedObj.storedFileRaw || roster.map(s => `${s.sNo} = ${s.name} = ${s.rollNo} = ${s.password}`).join('\n');
 
         document.getElementById('modal-title').innerText = `EDIT CLASS: ${dept} - ${year} - ${sec}`;
         document.getElementById('admin-dept').value = dept;
@@ -914,6 +956,14 @@
         document.getElementById('admin-sec').value = sec;
         document.getElementById('admin-student-list').value = rawText;
         document.getElementById('admin-student-file').value = '';
+        
+        window.currentStoredFileRaw = rawText;
+        window.currentStoredFileName = savedObj.storedFileName || 'MANUAL_ENTRY';
+
+        const badge = document.getElementById('stored-file-badge');
+        badge.style.display = 'block';
+        badge.innerText = `Active Stored File: ${window.currentStoredFileName}`;
+
         document.getElementById('admin-form-modal').style.display = 'block';
     }
 
