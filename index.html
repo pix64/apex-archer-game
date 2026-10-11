@@ -463,7 +463,7 @@
         <button type="button" class="submit-btn" onclick="searchAttendanceRecords()">Search Record</button>
 
         <div id="record-search-results" style="margin-top: 16px; display: none;">
-            <!-- Top Consolidated PDF Download Button for ALL or Specific result -->
+            <!-- Top Consolidated PDF Download Button for ALL matching results -->
             <button type="button" class="download-btn" id="top-download-btn" onclick="downloadArchivedPDF()" style="margin-bottom: 14px; background: #2563eb;">Download Consolidated PDF Report</button>
             
             <div id="record-results-container"></div>
@@ -489,7 +489,7 @@
 </div>
 
 <script>
-    const MQTT_BASE_TOPIC = "kcet/qr_attendance_multiclass_v26";
+    const MQTT_BASE_TOPIC = "kcet/qr_attendance_multiclass_v27";
     const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
 
     let attendanceRecords = [];
@@ -791,7 +791,7 @@
         if (!classDetails.subjectCode) return;
         const today = new Date().toISOString().split('T')[0];
         
-        // Naming format: department_section_date_period
+        // Exact naming format: department_section_date_period (storing explicit metadata as well)
         const recordKey = `record_${classDetails.department}_${classDetails.year}_${classDetails.section}_${today}_P${classDetails.period}`;
         
         const archivePayload = {
@@ -828,12 +828,10 @@
             return;
         }
 
-        // Find matching records in localStorage
         const allKeys = Object.keys(localStorage).filter(k => k.startsWith('record_'));
         const matchedRecords = [];
 
         allKeys.forEach(k => {
-            // record_DEPT_YEAR_SEC_YYYY-MM-DD_PX
             const parts = k.replace('record_', '').split('_');
             if (parts.length >= 6) {
                 const [rDept, rYear, rSec, rDate, rPeriod] = parts;
@@ -859,9 +857,8 @@
         alertBox.style.display = 'none';
         window.currentMatchedRecords = matchedRecords;
 
-        // Render results with PDF at the top
         let htmlHTML = '';
-        matchedRecords.forEach((parsed, index) => {
+        matchedRecords.forEach((parsed) => {
             htmlHTML += `
                 <div style="background: #0f172a; padding: 12px; border-radius: 10px; margin-bottom: 14px; border: 1px solid #334155;">
                     <h3 style="font-size: 13px; color: #38bdf8; margin-bottom: 4px;">File: ${parsed.classDetails.department}_${parsed.classDetails.year}_${parsed.classDetails.section}_${parsed.date}_P${parsed.classDetails.period} (${parsed.records.length} Present)</h3>
@@ -905,7 +902,7 @@
             }
 
             doc.setFontSize(12);
-            doc.text(`Class: ${parsed.classDetails.department} - ${parsed.classDetails.year} (${parsed.classDetails.section})`, 14, startY);
+            doc.text(`Department: ${parsed.classDetails.department} | Class/Year: ${parsed.classDetails.year} | Section: ${parsed.classDetails.section}`, 14, startY);
             doc.text(`Subject: ${parsed.classDetails.subject} | Date: ${parsed.date} | Period: P${parsed.classDetails.period}`, 14, startY + 7);
 
             const tableBody = parsed.records.map((item, index) => [
