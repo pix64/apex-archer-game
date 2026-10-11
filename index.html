@@ -417,7 +417,7 @@
 </div>
 
 <script>
-    const MQTT_BASE_TOPIC = "kcet/qr_attendance_multiclass_v20";
+    const MQTT_BASE_TOPIC = "kcet/qr_attendance_multiclass_v21";
     const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
 
     let attendanceRecords = [];
@@ -555,7 +555,6 @@
         const studentAlert = document.getElementById('student-alert');
         
         try {
-            // Silently ignore foreign or non-attendance QR codes
             if (!decodedText || !decodedText.startsWith('ATTEND|')) {
                 return;
             }
@@ -572,9 +571,25 @@
                     return;
                 }
 
-                const sessionKey = `attended_${subCode}_${section}_P${period}_${loggedInUser}`;
-                if (localStorage.getItem(sessionKey) === 'true') {
-                    showAlert(studentAlert, `❌ You have already scanned for this roll number!`, 'error');
+                // Session identifier for this specific class section and period
+                const sessionID = `${subCode}_${section}_P${period}`;
+                
+                // 1. Check if THIS DEVICE has already submitted attendance for this section
+                const deviceSectionKey = `device_scanned_${sessionID}`;
+                if (localStorage.getItem(deviceSectionKey) === 'true') {
+                    showAlert(studentAlert, `❌ This device has already submitted attendance for this section!`, 'error');
+                    if (html5QrCode) {
+                        html5QrCode.stop().then(() => {
+                            document.getElementById('scanner-wrapper').style.display = 'none';
+                        });
+                    }
+                    return;
+                }
+
+                // 2. Check if THIS ROLL NUMBER has already marked attendance for this section
+                const rollSessionKey = `roll_scanned_${sessionID}_${loggedInUser}`;
+                if (localStorage.getItem(rollSessionKey) === 'true') {
+                    showAlert(studentAlert, `❌ You have already scanned and marked present for roll number ${loggedInUser}!`, 'error');
                     if (html5QrCode) {
                         html5QrCode.stop().then(() => {
                             document.getElementById('scanner-wrapper').style.display = 'none';
@@ -586,21 +601,22 @@
                 const markTime = new Date().toLocaleTimeString();
 
                 const payload = {
-                    topic: `${MQTT_BASE_TOPIC}/${subCode}_${section}_P${period}`,
+                    topic: `${MQTT_BASE_TOPIC}/${sessionID}`,
                     type: 'ATTENDANCE',
                     rollNo: loggedInUser,
                     name: loggedInName,
                     status: 'PRESENT',
-                    timestamp: markTime,
-                    sessionKey: sessionKey
+                    timestamp: markTime
                 };
 
-                localStorage.setItem(sessionKey, 'true');
+                // Lock both device and roll number for this specific session
+                localStorage.setItem(deviceSectionKey, 'true');
+                localStorage.setItem(rollSessionKey, 'true');
 
                 const payloadString = JSON.stringify(payload);
 
                 client.publish(payload.topic, payloadString, { qos: 1 });
-                localStorage.setItem(`sync_attendance_${subCode}_${section}_P${period}`, payloadString);
+                localStorage.setItem(`sync_attendance_${sessionID}`, payloadString);
 
                 handleIncomingData(payloadString);
                 
@@ -613,13 +629,11 @@
                 }
             }
         } catch(e) {
-            // Silent catch to prevent crashing on malformed frames
+            // Silent catch to prevent errors on foreign frames
         }
     }
 
-    function onScanFailure(error) {
-        // Ignored silently on non-matching frames
-    }
+    function onScanFailure(error) {}
 
     function handleGenerateQR(e) {
         e.preventDefault();
@@ -693,9 +707,10 @@
 
     function clearRoster() {
         if (confirm("Clear attendance list for this session?")) {
+            const sessionID = `${classDetails.subjectCode}_${classDetails.section}_P${classDetails.period}`;
             const clearPayload = JSON.stringify({ topic: activeSessionTopic, type: 'CLEAR' });
             client.publish(activeSessionTopic, clearPayload);
-            localStorage.setItem(`sync_attendance_${classDetails.subjectCode}_${classDetails.section}_P${classDetails.period}`, clearPayload);
+            localStorage.setItem(`sync_attendance_${sessionID}`, clearPayload);
             
             attendanceRecords = [];
             renderRosterTable();
