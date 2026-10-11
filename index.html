@@ -304,6 +304,22 @@
             grid-template-columns: 1fr 1fr;
             gap: 10px;
         }
+
+        .class-block {
+            background: #0f172a;
+            border: 1px solid #334155;
+            padding: 12px;
+            border-radius: 12px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .class-block:hover {
+            border-color: #2563eb;
+        }
     </style>
 </head>
 <body>
@@ -455,32 +471,39 @@
             <button type="button" class="logout-btn" onclick="logout()">Logout</button>
         </div>
 
-        <div class="header">
-            <h2>Class & Student Registry</h2>
-            <p>Register classes and student login credentials</p>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+            <h3 style="font-size: 15px; color: #f8fafc;">Classrooms</h3>
+            <button type="button" class="submit-btn" style="width: auto; padding: 8px 14px; margin-top: 0; font-size: 12px; background: #16a34a;" onclick="openAddClassModal()">+ Add New Classroom</button>
         </div>
 
-        <form onsubmit="handleSaveClassStudents(event)">
-            <div class="grid-2">
-                <div class="form-group">
-                    <label>Department</label>
-                    <input type="text" id="admin-dept" placeholder="e.g. CSE" required oninput="this.value = this.value.toUpperCase()">
+        <div id="admin-classes-list"></div>
+
+        <!-- Add / Edit Modal Form (Hidden by default) -->
+        <div id="admin-form-modal" style="display: none; background: #0f172a; padding: 14px; border-radius: 12px; border: 1px solid #334155; margin-top: 14px;">
+            <h3 id="modal-title" style="font-size: 14px; color: #38bdf8; margin-bottom: 10px;">Add New Classroom</h3>
+            <form onsubmit="handleSaveClassStudents(event)">
+                <div class="grid-2">
+                    <div class="form-group">
+                        <label>Department</label>
+                        <input type="text" id="admin-dept" placeholder="e.g. CSE" required oninput="this.value = this.value.toUpperCase()">
+                    </div>
+                    <div class="form-group">
+                        <label>Class / Year</label>
+                        <input type="text" id="admin-year" placeholder="e.g. III" required oninput="this.value = this.value.toUpperCase()">
+                    </div>
                 </div>
                 <div class="form-group">
-                    <label>Class / Year</label>
-                    <input type="text" id="admin-year" placeholder="e.g. III" required oninput="this.value = this.value.toUpperCase()">
+                    <label>Section</label>
+                    <input type="text" id="admin-sec" placeholder="e.g. A" required oninput="this.value = this.value.toUpperCase()">
                 </div>
-            </div>
-            <div class="form-group">
-                <label>Section</label>
-                <input type="text" id="admin-sec" placeholder="e.g. A" required oninput="this.value = this.value.toUpperCase()">
-            </div>
-            <div class="form-group">
-                <label>Student Roster (Format per line: S_NO=NAME=ROLLNUMBER=PASSWORD)</label>
-                <textarea id="admin-student-list" placeholder="1=JOHN DOE=22CSE01=PASS123&#10;2=JANE SMITH=22CSE02=PASS456" required></textarea>
-            </div>
-            <button type="submit" class="submit-btn" style="background: #16a34a;">Save Class & Students</button>
-        </form>
+                <div class="form-group">
+                    <label>Student Roster PDF / Text (Format per line: S_NO=NAME=ROLLNUMBER=PASSWORD)</label>
+                    <textarea id="admin-student-list" placeholder="1=JOHN DOE=22CSE01=PASS123&#10;2=JANE SMITH=22CSE02=PASS456" required></textarea>
+                </div>
+                <button type="submit" class="submit-btn" style="background: #16a34a;">Save Classroom</button>
+                <button type="button" class="submit-btn" style="background: #64748b; margin-top: 6px;" onclick="closeAddClassModal()">Cancel</button>
+            </form>
+        </div>
         <div id="admin-alert" class="alert-box success" style="margin-top: 10px;"></div>
     </div>
 
@@ -547,7 +570,7 @@
 </div>
 
 <script>
-    const MQTT_BASE_TOPIC = "kcet/qr_attendance_multiclass_v29";
+    const MQTT_BASE_TOPIC = "kcet/qr_attendance_multiclass_v30";
     const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
 
     let attendanceRecords = [];
@@ -622,6 +645,7 @@
             renderTrackDashboard();
         } else if (role === 'admin') {
             switchView('admin-view');
+            renderAdminClasses();
         } else {
             switchView('login-view');
             if (formContainer) formContainer.style.display = 'block';
@@ -683,7 +707,32 @@
             } else {
                 showAlert(alertBox, 'Use format: [Year]@[ID]');
             }
+        } else if (currentRole === 'admin') {
+            const adminId = document.getElementById('username').value.trim().toUpperCase();
+            const pass = document.getElementById('password').value.trim();
+
+            if (adminId && pass === adminId) {
+                loggedInUser = adminId;
+                loggedInName = 'ADMIN';
+                switchView('admin-view');
+                renderAdminClasses();
+            } else {
+                showAlert(alertBox, 'Admin ID and Password must match!');
+            }
         }
+    }
+
+    function openAddClassModal() {
+        document.getElementById('modal-title').innerText = 'Add New Classroom';
+        document.getElementById('admin-dept').value = '';
+        document.getElementById('admin-year').value = '';
+        document.getElementById('admin-sec').value = '';
+        document.getElementById('admin-student-list').value = '';
+        document.getElementById('admin-form-modal').style.display = 'block';
+    }
+
+    function closeAddClassModal() {
+        document.getElementById('admin-form-modal').style.display = 'none';
     }
 
     function handleSaveClassStudents(e) {
@@ -720,8 +769,52 @@
         localStorage.setItem(rosterKey, JSON.stringify(roster));
 
         alertBox.className = 'alert-box success';
-        alertBox.innerText = `Successfully registered ${roster.length} students for ${dept} - ${year} Year - Section ${sec}!`;
+        alertBox.innerText = `Successfully saved ${roster.length} students for ${dept} - ${year} Year - Section ${sec}!`;
         alertBox.style.display = 'block';
+        closeAddClassModal();
+        renderAdminClasses();
+    }
+
+    function renderAdminClasses() {
+        const container = document.getElementById('admin-classes-list');
+        const keys = Object.keys(localStorage).filter(k => k.startsWith('roster_'));
+
+        if (keys.length === 0) {
+            container.innerHTML = '<p style="color: #64748b; text-align: center; padding: 20px;">No classrooms created yet. Click "+ Add New Classroom" above.</p>';
+            return;
+        }
+
+        container.innerHTML = keys.map(k => {
+            const parts = k.replace('roster_', '').split('_');
+            const dept = parts[0];
+            const year = parts[1];
+            const sec = parts[2];
+            const roster = JSON.parse(localStorage.getItem(k));
+
+            return `
+                <div class="class-block" onclick="editClassroom('${dept}', '${year}', '${sec}')">
+                    <div>
+                        <strong>${dept} - ${year} Year (Sec ${sec})</strong><br>
+                        <span style="color: #94a3b8; font-size: 11px;">${roster.length} Registered Students</span>
+                    </div>
+                    <span style="color: #38bdf8; font-size: 12px; font-weight: 700;">Edit &rarr;</span>
+                </div>
+            `;
+        }).join('');
+    }
+
+    function editClassroom(dept, year, sec) {
+        const rosterKey = `roster_${dept}_${year}_${sec}`;
+        const roster = JSON.parse(localStorage.getItem(rosterKey) || '[]');
+        
+        const rawText = roster.map(s => `${s.sNo}=${s.name}=${s.rollNo}=${s.password}`).join('\n');
+
+        document.getElementById('modal-title').innerText = `Edit Class: ${dept} - ${year} - ${sec}`;
+        document.getElementById('admin-dept').value = dept;
+        document.getElementById('admin-year').value = year;
+        document.getElementById('admin-sec').value = sec;
+        document.getElementById('admin-student-list').value = rawText;
+        document.getElementById('admin-form-modal').style.display = 'block';
     }
 
     async function startScanner() {
