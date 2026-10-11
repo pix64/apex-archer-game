@@ -58,23 +58,25 @@
         }
 
         .role-selector {
-            display: flex;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
             background: #0f172a;
-            padding: 4px;
+            padding: 6px;
             border-radius: 12px;
             margin-bottom: 20px;
         }
 
         .role-btn {
-            flex: 1;
             padding: 10px;
             border: none;
             background: transparent;
             color: #94a3b8;
             border-radius: 8px;
             font-weight: 600;
-            font-size: 14px;
+            font-size: 13px;
             cursor: pointer;
+            text-align: center;
         }
 
         .role-btn.active {
@@ -94,7 +96,7 @@
             font-weight: 600;
         }
 
-        .form-group input {
+        .form-group input, .form-group select {
             width: 100%;
             padding: 10px 12px;
             border: 1px solid #334155;
@@ -301,34 +303,39 @@
 
 <div class="app-card">
 
-    <!-- LOGIN VIEW -->
+    <!-- LOGIN / MAIN PORTAL VIEW -->
     <div id="login-view" class="view-section active">
         <div class="header">
             <h2>Attendance Portal</h2>
-            <p>Select role to login</p>
+            <p>Select portal mode</p>
         </div>
 
         <div class="role-selector">
             <button type="button" class="role-btn active" id="btn-role-student" onclick="setRole('student')">Student</button>
             <button type="button" class="role-btn" id="btn-role-teacher" onclick="setRole('teacher')">Teacher</button>
+            <button type="button" class="role-btn" id="btn-role-records" onclick="setRole('records')">Attendance Record</button>
+            <button type="button" class="role-btn" id="btn-role-track" onclick="setRole('track')">Track Sessions</button>
         </div>
 
-        <form onsubmit="handleLogin(event)">
-            <div class="form-group">
-                <label>Full Name</label>
-                <input type="text" id="user-fullname" placeholder="Enter Full Name" required>
-            </div>
-            <div class="form-group">
-                <label id="id-label">Roll Number</label>
-                <input type="text" id="username" placeholder="Enter Roll Number" required>
-            </div>
-            <div class="form-group">
-                <label>Password</label>
-                <input type="password" id="password" placeholder="Enter Password" required>
-            </div>
-            <button type="submit" class="submit-btn">Login</button>
-        </form>
-        <div id="login-alert" class="alert-box error"></div>
+        <!-- AUTH LOGIN FORM -->
+        <div id="auth-form-container">
+            <form onsubmit="handleLogin(event)">
+                <div class="form-group">
+                    <label>Full Name</label>
+                    <input type="text" id="user-fullname" placeholder="Enter Full Name" required>
+                </div>
+                <div class="form-group">
+                    <label id="id-label">Roll Number</label>
+                    <input type="text" id="username" placeholder="Enter Roll Number" required>
+                </div>
+                <div class="form-group">
+                    <label>Password</label>
+                    <input type="password" id="password" placeholder="Enter Password" required>
+                </div>
+                <button type="submit" class="submit-btn" id="login-submit-btn">Login</button>
+            </form>
+            <div id="login-alert" class="alert-box error"></div>
+        </div>
     </div>
 
     <!-- STUDENT VIEW -->
@@ -381,7 +388,7 @@
 
         <form onsubmit="handleGenerateQR(event)">
             <div class="grid-2">
-                <div class="form-group"><label>Class</label><input type="text" id="class-name" placeholder="e.g. III CSE" required></div>
+                <div class="form-group"><label>Department / Class</label><input type="text" id="class-name" placeholder="e.g. CSE" required></div>
                 <div class="form-group"><label>Section</label><input type="text" id="class-section" placeholder="e.g. A" required></div>
             </div>
             <div class="grid-2">
@@ -410,14 +417,73 @@
                 </tbody>
             </table>
 
+            <button type="button" class="submit-btn" style="background: #2563eb; margin-top: 12px;" onclick="submitTeacherSession()">Submit & Archive Attendance</button>
             <button type="button" class="download-btn" onclick="downloadPDF()">Download Attendance PDF</button>
         </div>
+    </div>
+
+    <!-- ATTENDANCE RECORD (PUBLIC SEARCH) VIEW -->
+    <div id="records-view" class="view-section">
+        <div class="user-info-bar">
+            <div><strong>Attendance Record Archive</strong></div>
+            <button type="button" class="logout-btn" onclick="switchView('login-view')">Back</button>
+        </div>
+
+        <div class="header">
+            <h2>Search Records</h2>
+            <p>Filter by Department, Section, Date & Period</p>
+        </div>
+
+        <div class="form-group">
+            <label>Department / Class</label>
+            <input type="text" id="search-dept" placeholder="e.g. CSE">
+        </div>
+        <div class="form-group">
+            <label>Section</label>
+            <input type="text" id="search-sec" placeholder="e.g. A">
+        </div>
+        <div class="grid-2">
+            <div class="form-group">
+                <label>Date (YYYY-MM-DD)</label>
+                <input type="date" id="search-date">
+            </div>
+            <div class="form-group">
+                <label>Period</label>
+                <input type="number" id="search-period" placeholder="e.g. 3" min="1" max="8">
+            </div>
+        </div>
+        <button type="button" class="submit-btn" onclick="searchAttendanceRecords()">Search Record</button>
+
+        <div id="record-search-results" style="margin-top: 16px; display: none;">
+            <h3 id="record-filename-title" style="font-size: 13px; color: #38bdf8; margin-bottom: 6px;"></h3>
+            <table class="attendance-table">
+                <thead><tr><th>Roll No</th><th>Name</th><th>Time</th><th>Status</th></tr></thead>
+                <tbody id="record-results-body"></tbody>
+            </table>
+            <button type="button" class="download-btn" id="record-download-btn" onclick="downloadArchivedPDF()">Download Record PDF</button>
+        </div>
+        <div id="record-alert" class="alert-box error"></div>
+    </div>
+
+    <!-- TRACK VIEW -->
+    <div id="track-view" class="view-section">
+        <div class="user-info-bar">
+            <div><strong>Session Tracking Dashboard</strong></div>
+            <button type="button" class="logout-btn" onclick="switchView('login-view')">Back</button>
+        </div>
+
+        <div class="header">
+            <h2>Active & Past Sessions</h2>
+            <p>Monitor creation time, running status & submissions</p>
+        </div>
+
+        <div id="track-sessions-list" style="margin-top: 10px; font-size: 12px;"></div>
     </div>
 
 </div>
 
 <script>
-    const MQTT_BASE_TOPIC = "kcet/qr_attendance_multiclass_v24";
+    const MQTT_BASE_TOPIC = "kcet/qr_attendance_multiclass_v25";
     const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
 
     let attendanceRecords = [];
@@ -429,6 +495,7 @@
     let qrRefreshInterval = null;
     let activeSessionTopic = '';
     let currentSessionSalt = '';
+    let sessionStartTime = null;
 
     client.on('connect', () => {
         const dot = document.getElementById('sync-dot');
@@ -475,9 +542,22 @@
 
     function setRole(role) {
         currentRole = role;
-        document.getElementById('btn-role-student').classList.toggle('active', role === 'student');
-        document.getElementById('btn-role-teacher').classList.toggle('active', role === 'teacher');
-        document.getElementById('id-label').innerText = role === 'student' ? 'Roll Number' : 'Employee ID';
+        ['student', 'teacher', 'records', 'track'].forEach(r => {
+            const btn = document.getElementById(`btn-role-${r}`);
+            if (btn) btn.classList.toggle('active', r === role);
+        });
+
+        const formContainer = document.getElementById('auth-form-container');
+        if (role === 'records') {
+            switchView('records-view');
+        } else if (role === 'track') {
+            switchView('track-view');
+            renderTrackDashboard();
+        } else {
+            switchView('login-view');
+            if (formContainer) formContainer.style.display = 'block';
+            document.getElementById('id-label').innerText = role === 'student' ? 'Roll Number' : 'Employee ID';
+        }
     }
 
     function handleLogin(e) {
@@ -496,7 +576,7 @@
             } else {
                 showAlert(alertBox, 'Password must match Roll Number');
             }
-        } else {
+        } else if (currentRole === 'teacher') {
             if (pass.endsWith(`@${user}`)) {
                 loggedInUser = user;
                 document.getElementById('teacher-display-name').innerText = loggedInName;
@@ -560,7 +640,6 @@
                 return;
             }
 
-            // PAYLOAD: ATTEND|SubCode|Section|Period|SessionSalt|TimestampMS
             const parts = decodedText.split('|');
             if (parts.length >= 6) {
                 const [_, subCode, section, period, sessionSalt, qrTimeStr] = parts;
@@ -642,11 +721,14 @@
             period: document.getElementById('period').value.trim()
         };
 
-        // Guaranteed unique collision-free session salt bound to Teacher's Employee ID + Timestamp + Random String
         currentSessionSalt = `s_${loggedInUser}_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 9)}`;
+        sessionStartTime = new Date();
 
         activeSessionTopic = `${MQTT_BASE_TOPIC}/${classDetails.subjectCode}_${classDetails.section}_P${classDetails.period}`;
         client.subscribe(activeSessionTopic);
+
+        // Save session meta to tracking storage
+        saveSessionTrackMeta('RUNNING');
 
         document.getElementById('qr-output').style.display = 'block';
 
@@ -675,6 +757,153 @@
         if (img) img.removeAttribute('title');
         const canvas = qrContainer.querySelector('canvas');
         if (canvas) canvas.removeAttribute('title');
+    }
+
+    function saveSessionTrackMeta(status, submitted = false) {
+        const today = new Date().toISOString().split('T')[0];
+        const trackKey = `session_track_${loggedInUser}_${today}_P${classDetails.period}`;
+        const trackData = {
+            teacherId: loggedInUser,
+            teacherName: loggedInName,
+            department: classDetails.className,
+            section: classDetails.section,
+            subjectCode: classDetails.subjectCode,
+            subject: classDetails.subject,
+            period: classDetails.period,
+            date: today,
+            startTime: sessionStartTime ? sessionStartTime.toLocaleTimeString() : new Date().toLocaleTimeString(),
+            endTime: status === 'ENDED' ? new Date().toLocaleTimeString() : 'Running...',
+            status: status,
+            submitted: submitted,
+            recordsCount: attendanceRecords.length
+        };
+        localStorage.setItem(trackKey, JSON.stringify(trackData));
+    }
+
+    function submitTeacherSession() {
+        if (!classDetails.subjectCode) return;
+        const today = new Date().toISOString().split('T')[0];
+        
+        // Format naming convention: department_section_date_period
+        const recordKey = `record_${classDetails.className}_${classDetails.section}_${today}_P${classDetails.period}`;
+        
+        const archivePayload = {
+            classDetails: classDetails,
+            date: today,
+            records: attendanceRecords,
+            submittedBy: loggedInName,
+            timestamp: new Date().toLocaleString()
+        };
+
+        localStorage.setItem(recordKey, JSON.stringify(archivePayload));
+        saveSessionTrackMeta('ENDED', true);
+
+        if (qrRefreshInterval) clearInterval(qrRefreshInterval);
+        if (html5QrCode) { try { html5QrCode.stop(); } catch(e){} }
+
+        alert("Attendance successfully submitted and archived under Attendance Records!");
+        document.getElementById('qr-output').style.display = 'none';
+    }
+
+    function searchAttendanceRecords() {
+        const dept = document.getElementById('search-dept').value.trim();
+        const sec = document.getElementById('search-sec').value.trim();
+        const date = document.getElementById('search-date').value.trim();
+        const period = document.getElementById('search-period').value.trim();
+        const alertBox = document.getElementById('record-alert');
+        const resultsDiv = document.getElementById('record-search-results');
+
+        if (!dept || !sec || !date || !period) {
+            showAlert(alertBox, 'Please fill in Department, Section, Date, and Period to search.');
+            resultsDiv.style.display = 'none';
+            return;
+        }
+
+        const recordKey = `record_${dept}_${sec}_${date}_P${period}`;
+        const savedData = localStorage.getItem(recordKey);
+
+        if (!savedData) {
+            showAlert(alertBox, `No attendance record found for: ${dept}_${sec}_${date}_P${period}`);
+            resultsDiv.style.display = 'none';
+            return;
+        }
+
+        alertBox.style.display = 'none';
+        const parsed = JSON.parse(savedData);
+        
+        document.getElementById('record-filename-title').innerText = `File: ${dept}_${sec}_${date}_P${period} (${parsed.records.length} Present)`;
+        
+        const tbody = document.getElementById('record-results-body');
+        if (parsed.records.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" style="color: #64748b;">No students marked present.</td></tr>';
+        } else {
+            tbody.innerHTML = parsed.records.map(item => `
+                <tr>
+                    <td><strong>${item.rollNo}</strong></td>
+                    <td>${item.name}</td>
+                    <td>${item.timestamp || 'N/A'}</td>
+                    <td class="badge-present">${item.status}</td>
+                </tr>
+            `).join('');
+        }
+
+        resultsDiv.style.display = 'block';
+        window.currentArchivedRecord = parsed;
+    }
+
+    function downloadArchivedPDF() {
+        if (!window.currentArchivedRecord) return;
+        const parsed = window.currentArchivedRecord;
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+
+        doc.setFontSize(16);
+        doc.text("CLASS ATTENDANCE REPORT (ARCHIVED)", 14, 15);
+
+        doc.setFontSize(10);
+        doc.text(`Class - Section: ${parsed.classDetails.className} - ${parsed.classDetails.section}`, 14, 25);
+        doc.text(`Period: Period ${parsed.classDetails.period}`, 120, 25);
+        doc.text(`Subject: ${parsed.classDetails.subject} (${parsed.classDetails.subjectCode})`, 14, 32);
+        doc.text(`Date: ${parsed.date}`, 120, 32);
+        doc.text(`Submitted By: ${parsed.submittedBy}`, 14, 39);
+        doc.text(`Total Present: ${parsed.records.length}`, 120, 39);
+
+        const tableBody = parsed.records.map((item, index) => [
+            index + 1, item.rollNo, item.name, item.timestamp || 'N/A', item.status
+        ]);
+
+        doc.autoTable({
+            startY: 45,
+            head: [['S.No', 'Roll Number', 'Student Name', 'Time', 'Status']],
+            body: tableBody,
+            theme: 'grid',
+            headStyles: { fillColor: [37, 99, 235] }
+        });
+
+        doc.save(`Attendance_${parsed.classDetails.className}_${parsed.classDetails.section}_${parsed.date}_P${parsed.classDetails.period}.pdf`);
+    }
+
+    function renderTrackDashboard() {
+        const container = document.getElementById('track-sessions-list');
+        const keys = Object.keys(localStorage).filter(k => k.startsWith('session_track_'));
+
+        if (keys.length === 0) {
+            container.innerHTML = '<p style="color: #64748b; text-align: center; padding: 20px;">No session history tracked yet.</p>';
+            return;
+        }
+
+        container.innerHTML = keys.map(k => {
+            const data = JSON.parse(localStorage.getItem(k));
+            return `
+                <div style="background: #0f172a; padding: 12px; border-radius: 10px; margin-bottom: 8px; border: 1px solid #334155;">
+                    <strong>${data.department} - Section ${data.section}</strong> (${data.subjectCode})<br>
+                    <span style="color: #94a3b8;">Teacher: ${data.teacherName} | Period: P${data.period}</span><br>
+                    <span style="color: #94a3b8;">Started: ${data.startTime} | Ended: ${data.endTime}</span><br>
+                    Status: <strong style="color: ${data.status === 'RUNNING' ? '#38bdf8' : '#4ade80'}">${data.status}</strong> | 
+                    Submitted: <strong style="color: ${data.submitted ? '#4ade80' : '#ef4444'}">${data.submitted ? 'Yes' : 'No'}</strong>
+                </div>
+            `;
+        }).join('');
     }
 
     function getSortedRecords() {
@@ -775,7 +1004,7 @@
             } catch(e){} 
         }
         if (qrRefreshInterval) clearInterval(qrRefreshInterval);
-        switchView('login-view');
+        setRole('student');
     }
 
     function showAlert(el, msg, type = 'error') {
