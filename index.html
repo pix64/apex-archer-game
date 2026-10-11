@@ -609,7 +609,7 @@
 </div>
 
 <script>
-    const MQTT_BASE_TOPIC = "kcet/qr_attendance_multiclass_v34";
+    const MQTT_BASE_TOPIC = "kcet/qr_attendance_multiclass_v35";
     const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
 
     let attendanceRecords = [];
@@ -735,15 +735,20 @@
             const pass = document.getElementById('password').value.trim();
 
             const rosterKey = `roster_${dept}_${year}_${sec}`;
-            const rosterJSON = localStorage.getItem(rosterKey);
+            const savedDataJSON = localStorage.getItem(rosterKey);
 
-            if (!rosterJSON) {
-                showAlert(alertBox, `NO REGISTERED STUDENT ROSTER FOUND FOR ${dept} - ${year} YEAR - SECTION ${sec}.`);
+            if (!savedDataJSON) {
+                showAlert(alertBox, `NO REGISTERED STUDENT ROSTER FOUND FOR ${dept} - ${year} YEAR - SECTION ${sec}. PLEASE CONTACT ADMIN.`);
                 return;
             }
 
-            const roster = JSON.parse(rosterJSON);
-            const student = roster.find(s => s.rollNo === rollNo && s.password === pass);
+            const savedObj = JSON.parse(savedDataJSON);
+            const roster = savedObj.roster || (Array.isArray(savedObj) ? savedObj : []);
+
+            const student = roster.find(s => 
+                s.rollNo.toUpperCase() === rollNo.toUpperCase() && 
+                s.password.trim() === pass.trim()
+            );
 
             if (student) {
                 loggedInUser = student.rollNo;
@@ -868,6 +873,41 @@
         document.getElementById('admin-form-modal').style.display = 'none';
     }
 
+    function parseRosterLines(rawText) {
+        const lines = rawText.split('\n');
+        const roster = [];
+
+        lines.forEach(line => {
+            let trimmed = line.trim();
+            if (!trimmed) return;
+
+            // Flexible delimiter split (=, comma, tab, colon)
+            let parts = [];
+            if (trimmed.includes('=')) parts = trimmed.split('=');
+            else if (trimmed.includes(',')) parts = trimmed.split(',');
+            else if (trimmed.includes('\t')) parts = trimmed.split('\t');
+            else if (trimmed.includes(':')) parts = trimmed.split(':');
+
+            if (parts.length >= 4) {
+                const sNo = parts[0].trim().toUpperCase();
+                const name = parts[1].trim().toUpperCase();
+                const rollNo = parts[2].trim().toUpperCase();
+                const password = parts[3].trim();
+
+                // Skip header line if present
+                if (sNo === 'S.NO' || sNo === 'S_NO' || rollNo === 'ROLLNUMBER' || rollNo === 'ROLL NO') {
+                    return;
+                }
+
+                if (rollNo && password) {
+                    roster.push({ sNo, name, rollNo, password });
+                }
+            }
+        });
+
+        return roster;
+    }
+
     function handleSaveClassStudents(e) {
         e.preventDefault();
         const dept = document.getElementById('admin-dept').value.trim().toUpperCase();
@@ -876,24 +916,11 @@
         const rawText = document.getElementById('admin-student-list').value.trim();
         const alertBox = document.getElementById('admin-alert');
 
-        const lines = rawText.split('\n');
-        const roster = [];
-
-        lines.forEach(line => {
-            const parts = line.split('=');
-            if (parts.length >= 4) {
-                roster.push({
-                    sNo: parts[0].trim().toUpperCase(),
-                    name: parts[1].trim().toUpperCase(),
-                    rollNo: parts[2].trim().toUpperCase(),
-                    password: parts[3].trim()
-                });
-            }
-        });
+        const roster = parseRosterLines(rawText);
 
         if (roster.length === 0) {
             alertBox.className = 'alert-box error';
-            alertBox.innerText = 'INVALID FORMAT! ENSURE LINES FOLLOW S.NO = NAME = ROLLNUMBER = PASSWORD';
+            alertBox.innerText = 'INVALID FORMAT! ENSURE LINES CONTAIN 4 FIELDS (S.NO = NAME = ROLLNUMBER = PASSWORD)';
             alertBox.style.display = 'block';
             return;
         }
@@ -929,7 +956,7 @@
             const year = parts[1];
             const sec = parts[2];
             const savedObj = JSON.parse(localStorage.getItem(k));
-            const roster = savedObj.roster || savedObj; // backward compatibility
+            const roster = savedObj.roster || (Array.isArray(savedObj) ? savedObj : []);
 
             return `
                 <div class="class-block" onclick="editClassroom('${dept}', '${year}', '${sec}')">
