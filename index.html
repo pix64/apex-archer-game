@@ -609,7 +609,7 @@
 </div>
 
 <script>
-    const MQTT_BASE_TOPIC = "kcet/qr_attendance_multiclass_v35";
+    const MQTT_BASE_TOPIC = "kcet/qr_attendance_multiclass_v36";
     const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
 
     let attendanceRecords = [];
@@ -723,6 +723,40 @@
         }
     }
 
+    function parseRosterLines(rawText) {
+        if (!rawText) return [];
+        const lines = rawText.split('\n');
+        const roster = [];
+
+        lines.forEach(line => {
+            let trimmed = line.trim();
+            if (!trimmed) return;
+
+            let parts = [];
+            if (trimmed.includes('=')) parts = trimmed.split('=');
+            else if (trimmed.includes(',')) parts = trimmed.split(',');
+            else if (trimmed.includes('\t')) parts = trimmed.split('\t');
+            else if (trimmed.includes(':')) parts = trimmed.split(':');
+
+            if (parts.length >= 4) {
+                const sNo = parts[0].trim().toUpperCase();
+                const name = parts[1].trim().toUpperCase();
+                const rollNo = parts[2].trim().toUpperCase();
+                const password = parts[3].trim();
+
+                if (sNo === 'S.NO' || sNo === 'S_NO' || rollNo === 'ROLLNUMBER' || rollNo === 'ROLL NO') {
+                    return;
+                }
+
+                if (rollNo && password) {
+                    roster.push({ sNo, name, rollNo, password });
+                }
+            }
+        });
+
+        return roster;
+    }
+
     function handleLogin(e) {
         e.preventDefault();
         const alertBox = document.getElementById('login-alert');
@@ -743,7 +777,11 @@
             }
 
             const savedObj = JSON.parse(savedDataJSON);
-            const roster = savedObj.roster || (Array.isArray(savedObj) ? savedObj : []);
+            let roster = savedObj.roster || (Array.isArray(savedObj) ? savedObj : []);
+
+            if (roster.length === 0 && savedObj.storedFileRaw) {
+                roster = parseRosterLines(savedObj.storedFileRaw);
+            }
 
             const student = roster.find(s => 
                 s.rollNo.toUpperCase() === rollNo.toUpperCase() && 
@@ -871,41 +909,6 @@
 
     function closeAddClassModal() {
         document.getElementById('admin-form-modal').style.display = 'none';
-    }
-
-    function parseRosterLines(rawText) {
-        const lines = rawText.split('\n');
-        const roster = [];
-
-        lines.forEach(line => {
-            let trimmed = line.trim();
-            if (!trimmed) return;
-
-            // Flexible delimiter split (=, comma, tab, colon)
-            let parts = [];
-            if (trimmed.includes('=')) parts = trimmed.split('=');
-            else if (trimmed.includes(',')) parts = trimmed.split(',');
-            else if (trimmed.includes('\t')) parts = trimmed.split('\t');
-            else if (trimmed.includes(':')) parts = trimmed.split(':');
-
-            if (parts.length >= 4) {
-                const sNo = parts[0].trim().toUpperCase();
-                const name = parts[1].trim().toUpperCase();
-                const rollNo = parts[2].trim().toUpperCase();
-                const password = parts[3].trim();
-
-                // Skip header line if present
-                if (sNo === 'S.NO' || sNo === 'S_NO' || rollNo === 'ROLLNUMBER' || rollNo === 'ROLL NO') {
-                    return;
-                }
-
-                if (rollNo && password) {
-                    roster.push({ sNo, name, rollNo, password });
-                }
-            }
-        });
-
-        return roster;
     }
 
     function handleSaveClassStudents(e) {
