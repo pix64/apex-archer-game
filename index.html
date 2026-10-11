@@ -417,7 +417,7 @@
 </div>
 
 <script>
-    const MQTT_BASE_TOPIC = "kcet/qr_attendance_multiclass_v19";
+    const MQTT_BASE_TOPIC = "kcet/qr_attendance_multiclass_v20";
     const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
 
     let attendanceRecords = [];
@@ -449,7 +449,7 @@
     function handleIncomingData(rawString) {
         try {
             const data = JSON.parse(rawString);
-            if (data.topic && data.topic !== activeSessionTopic) return; // Ignore messages from other classes
+            if (data.topic && data.topic !== activeSessionTopic) return;
 
             if (data.type === 'CLEAR') {
                 attendanceRecords = [];
@@ -555,9 +555,13 @@
         const studentAlert = document.getElementById('student-alert');
         
         try {
-            // PAYLOAD: ATTEND|SubCode|Section|Period|TimestampMS
+            // Silently ignore foreign or non-attendance QR codes
+            if (!decodedText || !decodedText.startsWith('ATTEND|')) {
+                return;
+            }
+
             const parts = decodedText.split('|');
-            if (parts.length >= 5 && parts[0] === 'ATTEND') {
+            if (parts.length >= 5) {
                 const [_, subCode, section, period, qrTimeStr] = parts;
                 const qrTimestamp = parseInt(qrTimeStr, 10);
                 const currentTimestamp = Date.now();
@@ -568,7 +572,6 @@
                     return;
                 }
 
-                // Create a unique session tracking key per roll number and section/period session
                 const sessionKey = `attended_${subCode}_${section}_P${period}_${loggedInUser}`;
                 if (localStorage.getItem(sessionKey) === 'true') {
                     showAlert(studentAlert, `❌ You have already scanned for this roll number!`, 'error');
@@ -581,7 +584,6 @@
                 }
 
                 const markTime = new Date().toLocaleTimeString();
-                const targetTopic = `${MQTT_BASE_BASE || MQTT_BASE_TOPIC}/${subCode}_${section}_P${period}`;
 
                 const payload = {
                     topic: `${MQTT_BASE_TOPIC}/${subCode}_${section}_P${period}`,
@@ -609,15 +611,15 @@
                         document.getElementById('scanner-wrapper').style.display = 'none';
                     });
                 }
-            } else {
-                showAlert(studentAlert, 'Invalid or Mismatched Classroom QR Code.', 'error');
             }
         } catch(e) {
-            showAlert(studentAlert, 'Error processing QR frame.', 'error');
+            // Silent catch to prevent crashing on malformed frames
         }
     }
 
-    function onScanFailure(error) {}
+    function onScanFailure(error) {
+        // Ignored silently on non-matching frames
+    }
 
     function handleGenerateQR(e) {
         e.preventDefault();
@@ -646,7 +648,6 @@
         qrContainer.innerHTML = '';
 
         const timestamp = Date.now();
-        // Embedded hidden section token validation string
         const payloadStr = `ATTEND|${classDetails.subjectCode}|${classDetails.section}|P${classDetails.period}|${timestamp}`;
 
         new QRCode(qrContainer, { 
@@ -656,7 +657,6 @@
             correctLevel: QRCode.CorrectLevel.L
         });
 
-        // Strip hover tooltips so hovering over the QR code reveals no internal payload information
         qrContainer.removeAttribute('title');
         const img = qrContainer.querySelector('img');
         if (img) img.removeAttribute('title');
