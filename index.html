@@ -417,7 +417,7 @@
 </div>
 
 <script>
-    const MQTT_TOPIC = "kcet/qr_attendance_system_live_v17";
+    const MQTT_TOPIC = "kcet/qr_attendance_system_live_v18";
     const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
 
     let attendanceRecords = [];
@@ -491,7 +491,7 @@
         const alertBox = document.getElementById('login-alert');
 
         if (currentRole === 'student') {
-            // Allow all users to log in freely
+            // Allow any student roll number to log in freely on any device
             if (pass === user) {
                 loggedInUser = user;
                 document.getElementById('student-display-name').innerText = loggedInName;
@@ -573,10 +573,10 @@
                     return;
                 }
 
-                // Create a unique session key based on Subject Code, Section, and Period
+                // Unique session tracking key per roll number and section/period session
                 const sessionKey = `attended_${subCode}_${sec}_P${period}_${loggedInUser}`;
                 if (localStorage.getItem(sessionKey) === 'true') {
-                    showAlert(studentAlert, `❌ Attendance already marked for Roll Number ${loggedInUser} in this section/session!`, 'error');
+                    showAlert(studentAlert, `❌ You have already scanned for this roll number!`, 'error');
                     if (html5QrCode) {
                         html5QrCode.stop().then(() => {
                             document.getElementById('scanner-wrapper').style.display = 'none';
@@ -655,6 +655,13 @@
             height: 180,
             correctLevel: QRCode.CorrectLevel.L
         });
+
+        // Clear tooltips so hovering over the QR code reveals no information
+        qrContainer.removeAttribute('title');
+        const img = qrContainer.querySelector('img');
+        if (img) img.removeAttribute('title');
+        const canvas = qrContainer.querySelector('canvas');
+        if (canvas) canvas.removeAttribute('title');
     }
 
     function getSortedRecords() {
