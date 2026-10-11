@@ -417,7 +417,7 @@
 </div>
 
 <script>
-    const MQTT_BASE_TOPIC = "kcet/qr_attendance_multiclass_v22";
+    const MQTT_BASE_TOPIC = "kcet/qr_attendance_multiclass_v23";
     const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
 
     let attendanceRecords = [];
@@ -428,6 +428,7 @@
     let classDetails = {};
     let qrRefreshInterval = null;
     let activeSessionTopic = '';
+    let currentSessionSalt = '';
 
     client.on('connect', () => {
         const dot = document.getElementById('sync-dot');
@@ -559,9 +560,10 @@
                 return;
             }
 
+            // PAYLOAD: ATTEND|SubCode|Section|Period|SessionSalt|TimestampMS
             const parts = decodedText.split('|');
-            if (parts.length >= 5) {
-                const [_, subCode, section, period, qrTimeStr] = parts;
+            if (parts.length >= 6) {
+                const [_, subCode, section, period, sessionSalt, qrTimeStr] = parts;
                 const qrTimestamp = parseInt(qrTimeStr, 10);
                 const currentTimestamp = Date.now();
                 const latency = currentTimestamp - qrTimestamp;
@@ -571,12 +573,12 @@
                     return;
                 }
 
-                const sessionID = `${subCode}_${section}_P${period}`;
-                
-                // 1. Check if THIS DEVICE has already submitted attendance for THIS SPECIFIC session
-                const activeDeviceKey = localStorage.getItem('last_scanned_device_session');
-                if (activeDeviceKey === sessionID) {
-                    showAlert(studentAlert, `❌ This device has already submitted attendance for this section!`, 'error');
+                // Unique tracking keys bound specifically to this active session salt
+                const deviceSessionKey = `device_scanned_${sessionSalt}`;
+                const rollSessionKey = `roll_scanned_${sessionSalt}_${loggedInUser}`;
+
+                if (localStorage.getItem(deviceSessionKey) === 'true') {
+                    showAlert(studentAlert, `❌ This device has already submitted attendance for this active session!`, 'error');
                     if (html5QrCode) {
                         html5QrCode.stop().then(() => {
                             document.getElementById('scanner-wrapper').style.display = 'none';
@@ -585,10 +587,8 @@
                     return;
                 }
 
-                // 2. Check if THIS ROLL NUMBER has already marked attendance for THIS SPECIFIC session
-                const rollSessionKey = `roll_scanned_${sessionID}_${loggedInUser}`;
                 if (localStorage.getItem(rollSessionKey) === 'true') {
-                    showAlert(studentAlert, `❌ You have already scanned and marked present for roll number ${loggedInUser}!`, 'error');
+                    showAlert(studentAlert, `❌ You have already scanned and marked present for roll number ${loggedInUser} in this session!`, 'error');
                     if (html5QrCode) {
                         html5QrCode.stop().then(() => {
                             document.getElementById('scanner-wrapper').style.display = 'none';
@@ -598,6 +598,7 @@
                 }
 
                 const markTime = new Date().toLocaleTimeString();
+                const sessionID = `${subCode}_${section}_P${period}`;
 
                 const payload = {
                     topic: `${MQTT_BASE_TOPIC}/${sessionID}`,
@@ -608,8 +609,8 @@
                     timestamp: markTime
                 };
 
-                // Lock device to this specific session and lock roll number
-                localStorage.setItem('last_scanned_device_session', sessionID);
+                // Lock device and roll number for this specific session instance
+                localStorage.setItem(deviceSessionKey, 'true');
                 localStorage.setItem(rollSessionKey, 'true');
 
                 const payloadString = JSON.stringify(payload);
@@ -645,6 +646,9 @@
             period: document.getElementById('period').value.trim()
         };
 
+        // Generate a fresh unique session salt every time a teacher starts/restarts a session
+        currentSessionSalt = 's_' + Math.random().toString(36).substring(2, 9) + Date.now().toString(36);
+
         activeSessionTopic = `${MQTT_BASE_TOPIC}/${classDetails.subjectCode}_${classDetails.section}_P${classDetails.period}`;
         client.subscribe(activeSessionTopic);
 
@@ -661,7 +665,7 @@
         qrContainer.innerHTML = '';
 
         const timestamp = Date.now();
-        const payloadStr = `ATTEND|${classDetails.subjectCode}|${classDetails.section}|P${classDetails.period}|${timestamp}`;
+        const payloadStr = `ATTEND|${classDetails.subjectCode}|${classDetails.section}|${classDetails.period}|${currentSessionSalt}|${timestamp}`;
 
         new QRCode(qrContainer, { 
             text: payloadStr, 
