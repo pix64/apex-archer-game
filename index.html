@@ -12,6 +12,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
     <style>
         * {
@@ -60,8 +61,8 @@
 
         .role-selector {
             display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 5px;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 4px;
             background: #0f172a;
             padding: 6px;
             border-radius: 12px;
@@ -69,13 +70,13 @@
         }
 
         .role-btn {
-            padding: 8px 4px;
+            padding: 8px 2px;
             border: none;
             background: transparent;
             color: #94a3b8;
             border-radius: 8px;
             font-weight: 600;
-            font-size: 11px;
+            font-size: 10px;
             cursor: pointer;
             text-align: center;
         }
@@ -327,32 +328,8 @@
 
 <div class="app-card">
 
-    <!-- ADMIN LOGIN VIEW (DEFAULT LANDING) -->
-    <div id="admin-login-view" class="view-section active">
-        <div class="header">
-            <h2>Admin Portal</h2>
-            <p>Enter Admin Credentials</p>
-        </div>
-
-        <form onsubmit="handleAdminLogin(event)">
-            <div class="form-group">
-                <label>Admin ID</label>
-                <input type="text" id="admin-login-id" placeholder="Enter Admin ID" required oninput="this.value = this.value.toUpperCase()">
-            </div>
-            <div class="form-group">
-                <label>Password</label>
-                <input type="password" id="admin-login-pass" placeholder="Enter Password" required>
-            </div>
-            <button type="submit" class="submit-btn" style="background: #2563eb;">Login as Admin</button>
-        </form>
-        <div style="text-align: center; margin-top: 14px;">
-            <button type="button" class="logout-btn" onclick="switchToPortal()" style="font-size: 13px;">Switch to Student / Teacher / Records Portal &rarr;</button>
-        </div>
-        <div id="admin-login-alert" class="alert-box error"></div>
-    </div>
-
-    <!-- GENERAL LOGIN / PORTAL SWITCH VIEW -->
-    <div id="login-view" class="view-section">
+    <!-- GENERAL LOGIN / PORTAL VIEW (DEFAULT LANDING) -->
+    <div id="login-view" class="view-section active">
         <div class="header">
             <h2>Attendance Portal</h2>
             <p>Select portal mode</p>
@@ -400,10 +377,34 @@
                 <button type="submit" class="submit-btn" id="login-submit-btn">Login</button>
             </form>
             <div style="text-align: center; margin-top: 14px;">
-                <button type="button" class="logout-btn" onclick="switchToAdminLogin()" style="font-size: 13px;">&larr; Back to Admin Login</button>
+                <button type="button" class="logout-btn" onclick="switchToAdminLogin()" style="font-size: 13px;">Admin Portal Login &rarr;</button>
             </div>
             <div id="login-alert" class="alert-box error"></div>
         </div>
+    </div>
+
+    <!-- ADMIN LOGIN VIEW -->
+    <div id="admin-login-view" class="view-section">
+        <div class="header">
+            <h2>Admin Portal</h2>
+            <p>Enter Admin Credentials</p>
+        </div>
+
+        <form onsubmit="handleAdminLogin(event)">
+            <div class="form-group">
+                <label>Admin ID</label>
+                <input type="text" id="admin-login-id" placeholder="Enter Admin ID" required oninput="this.value = this.value.toUpperCase()">
+            </div>
+            <div class="form-group">
+                <label>Password</label>
+                <input type="password" id="admin-login-pass" placeholder="Enter Password" required>
+            </div>
+            <button type="submit" class="submit-btn" style="background: #2563eb;">Login as Admin</button>
+        </form>
+        <div style="text-align: center; margin-top: 14px;">
+            <button type="button" class="logout-btn" onclick="switchToPortal()" style="font-size: 13px;">&larr; Back to Normal Portal</button>
+        </div>
+        <div id="admin-login-alert" class="alert-box error"></div>
     </div>
 
     <!-- STUDENT VIEW -->
@@ -495,7 +496,7 @@
     <div id="admin-view" class="view-section">
         <div class="user-info-bar">
             <div><strong>Admin Dashboard</strong></div>
-            <button type="button" class="logout-btn" onclick="switchToAdminLogin()">Logout</button>
+            <button type="button" class="logout-btn" onclick="switchToPortal()">Logout</button>
         </div>
 
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
@@ -525,12 +526,12 @@
                 </div>
                 
                 <div class="form-group">
-                    <label>Upload Student PDF File</label>
-                    <input type="file" id="admin-pdf-file" accept="application/pdf" onchange="handleStudentPDFUpload(event)" style="font-size: 12px; padding: 6px;">
+                    <label>Upload Student File (Excel, CSV, or PDF)</label>
+                    <input type="file" id="admin-student-file" accept=".xlsx, .xls, .csv, application/pdf" onchange="handleStudentFileUpload(event)" style="font-size: 12px; padding: 6px;">
                 </div>
 
                 <div class="form-group">
-                    <label>Or Manual Entry (S_NO = NAME = ROLLNUMBER = PASSWORD)</label>
+                    <label>Or Manual Entry (S.NO = NAME = ROLLNUMBER = PASSWORD)</label>
                     <textarea id="admin-student-list" placeholder="1 = JOHN DOE = 22CSE01 = PASS123&#10;2 = JANE SMITH = 22CSE02 = PASS456"></textarea>
                 </div>
 
@@ -604,7 +605,7 @@
 </div>
 
 <script>
-    const MQTT_BASE_TOPIC = "kcet/qr_attendance_multiclass_v31";
+    const MQTT_BASE_TOPIC = "kcet/qr_attendance_multiclass_v32";
     const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
 
     let attendanceRecords = [];
@@ -766,29 +767,57 @@
         }
     }
 
-    async function handleStudentPDFUpload(e) {
+    async function handleStudentFileUpload(e) {
         const file = e.target.files[0];
         if (!file) return;
 
-        const reader = new FileReader();
-        reader.onload = async function() {
-            const typedarray = new Uint8Array(this.result);
-            try {
-                const pdf = await pdfjsLib.getDocument(typedarray).promise;
-                let fullText = '';
-                for (let i = 1; i <= pdf.numPages; i++) {
-                    const page = await pdf.getPage(i);
-                    const textContent = await page.getTextContent();
-                    const pageText = textContent.items.map(item => item.str).join(' ');
-                    fullText += pageText + '\n';
+        const fileName = file.name.toLowerCase();
+
+        if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls') || fileName.endsWith('.csv')) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const firstSheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[firstSheetName];
+                    const jsonRows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+
+                    let formattedText = '';
+                    jsonRows.forEach(row => {
+                        const filtered = row.filter(cell => cell !== undefined && cell !== null && String(cell).trim() !== '');
+                        if (filtered.length >= 4) {
+                            formattedText += `${filtered[0]} = ${filtered[1]} = ${filtered[2]} = ${filtered[3]}\n`;
+                        }
+                    });
+                    document.getElementById('admin-student-list').value = formattedText.toUpperCase();
+                } catch(err) {
+                    console.error(err);
+                    alert('Error parsing Excel/CSV file.');
                 }
-                document.getElementById('admin-student-list').value = fullText.toUpperCase();
-            } catch(err) {
-                console.error(err);
-                alert('Error parsing PDF file.');
-            }
-        };
-        reader.readAsArrayBuffer(file);
+            };
+            reader.readAsArrayBuffer(file);
+        } else if (fileName.endsWith('.pdf')) {
+            const reader = new FileReader();
+            reader.onload = async function() {
+                const typedarray = new Uint8Array(this.result);
+                try {
+                    const pdf = await pdfjsLib.getDocument(typedarray).promise;
+                    let fullText = '';
+                    for (let i = 1; i <= pdf.numPages; i++) {
+                        const page = await pdf.getPage(i);
+                        const textContent = await page.getTextContent();
+                        const pageText = textContent.items.map(item => item.str).join(' ');
+                        fullText += pageText + '\n';
+                    }
+                    document.getElementById('admin-student-list').value = fullText.toUpperCase();
+                } catch(err) {
+                    console.error(err);
+                    alert('Error parsing PDF file.');
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        }
     }
 
     function openAddClassModal() {
@@ -797,7 +826,7 @@
         document.getElementById('admin-year').value = '';
         document.getElementById('admin-sec').value = '';
         document.getElementById('admin-student-list').value = '';
-        document.getElementById('admin-pdf-file').value = '';
+        document.getElementById('admin-student-file').value = '';
         document.getElementById('admin-form-modal').style.display = 'block';
     }
 
@@ -830,7 +859,7 @@
 
         if (roster.length === 0) {
             alertBox.className = 'alert-box error';
-            alertBox.innerText = 'INVALID FORMAT! ENSURE LINES FOLLOW S_NO = NAME = ROLLNUMBER = PASSWORD';
+            alertBox.innerText = 'INVALID FORMAT! ENSURE LINES FOLLOW S.NO = NAME = ROLLNUMBER = PASSWORD';
             alertBox.style.display = 'block';
             return;
         }
@@ -884,7 +913,7 @@
         document.getElementById('admin-year').value = year;
         document.getElementById('admin-sec').value = sec;
         document.getElementById('admin-student-list').value = rawText;
-        document.getElementById('admin-pdf-file').value = '';
+        document.getElementById('admin-student-file').value = '';
         document.getElementById('admin-form-modal').style.display = 'block';
     }
 
@@ -1334,7 +1363,7 @@
             } catch(e){} 
         }
         if (qrRefreshInterval) clearInterval(qrRefreshInterval);
-        switchToAdminLogin();
+        switchToPortal();
     }
 
     function showAlert(el, msg, type = 'error') {
