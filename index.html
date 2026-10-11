@@ -417,7 +417,7 @@
 </div>
 
 <script>
-    const MQTT_BASE_TOPIC = "kcet/qr_attendance_multiclass_v21";
+    const MQTT_BASE_TOPIC = "kcet/qr_attendance_multiclass_v22";
     const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
 
     let attendanceRecords = [];
@@ -571,12 +571,11 @@
                     return;
                 }
 
-                // Session identifier for this specific class section and period
                 const sessionID = `${subCode}_${section}_P${period}`;
                 
-                // 1. Check if THIS DEVICE has already submitted attendance for this section
-                const deviceSectionKey = `device_scanned_${sessionID}`;
-                if (localStorage.getItem(deviceSectionKey) === 'true') {
+                // 1. Check if THIS DEVICE has already submitted attendance for THIS SPECIFIC session
+                const activeDeviceKey = localStorage.getItem('last_scanned_device_session');
+                if (activeDeviceKey === sessionID) {
                     showAlert(studentAlert, `❌ This device has already submitted attendance for this section!`, 'error');
                     if (html5QrCode) {
                         html5QrCode.stop().then(() => {
@@ -586,7 +585,7 @@
                     return;
                 }
 
-                // 2. Check if THIS ROLL NUMBER has already marked attendance for this section
+                // 2. Check if THIS ROLL NUMBER has already marked attendance for THIS SPECIFIC session
                 const rollSessionKey = `roll_scanned_${sessionID}_${loggedInUser}`;
                 if (localStorage.getItem(rollSessionKey) === 'true') {
                     showAlert(studentAlert, `❌ You have already scanned and marked present for roll number ${loggedInUser}!`, 'error');
@@ -609,8 +608,8 @@
                     timestamp: markTime
                 };
 
-                // Lock both device and roll number for this specific session
-                localStorage.setItem(deviceSectionKey, 'true');
+                // Lock device to this specific session and lock roll number
+                localStorage.setItem('last_scanned_device_session', sessionID);
                 localStorage.setItem(rollSessionKey, 'true');
 
                 const payloadString = JSON.stringify(payload);
@@ -629,7 +628,7 @@
                 }
             }
         } catch(e) {
-            // Silent catch to prevent errors on foreign frames
+            // Silent catch
         }
     }
 
