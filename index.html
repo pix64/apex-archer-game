@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Smart Anti-Proxy QR Attendance System</title>
+    <title>Smart Anti-Proxy Multi-Room QR Attendance System</title>
     
     <!-- External Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
@@ -417,7 +417,7 @@
 </div>
 
 <script>
-    const MQTT_TOPIC = "kcet/qr_attendance_system_live_v18";
+    const MQTT_BASE_TOPIC = "kcet/qr_attendance_multiclass_v19";
     const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
 
     let attendanceRecords = [];
@@ -427,27 +427,21 @@
     let html5QrCode = null;
     let classDetails = {};
     let qrRefreshInterval = null;
+    let activeSessionTopic = '';
 
     client.on('connect', () => {
         const dot = document.getElementById('sync-dot');
         const status = document.getElementById('sync-status');
         if (dot) dot.classList.add('online');
         if (status) status.innerText = 'Engine Online & Connected';
-        client.subscribe(MQTT_TOPIC, (err) => {
-            if (!err) {
-                console.log("Subscribed successfully to topic:", MQTT_TOPIC);
-            }
-        });
     });
 
     client.on('message', (topic, message) => {
-        if (topic === MQTT_TOPIC) {
-            handleIncomingData(message.toString());
-        }
+        handleIncomingData(message.toString());
     });
 
     window.addEventListener('storage', (event) => {
-        if (event.key === 'sync_attendance_payload' && event.newValue) {
+        if (event.key && event.key.startsWith('sync_attendance_') && event.newValue) {
             handleIncomingData(event.newValue);
         }
     });
@@ -455,6 +449,8 @@
     function handleIncomingData(rawString) {
         try {
             const data = JSON.parse(rawString);
+            if (data.topic && data.topic !== activeSessionTopic) return; // Ignore messages from other classes
+
             if (data.type === 'CLEAR') {
                 attendanceRecords = [];
             } else if (data.type === 'ATTENDANCE') {
@@ -491,7 +487,6 @@
         const alertBox = document.getElementById('login-alert');
 
         if (currentRole === 'student') {
-            // Allow any student roll number to log in freely on any device
             if (pass === user) {
                 loggedInUser = user;
                 document.getElementById('student-display-name').innerText = loggedInName;
@@ -560,10 +555,10 @@
         const studentAlert = document.getElementById('student-alert');
         
         try {
-            // PAYLOAD: ATTEND|SubCode|Sec|Period|TimestampMS
+            // PAYLOAD: ATTEND|SubCode|Section|Period|TimestampMS
             const parts = decodedText.split('|');
             if (parts.length >= 5 && parts[0] === 'ATTEND') {
-                const [_, subCode, sec, period, qrTimeStr] = parts;
+                const [_, subCode, section, period, qrTimeStr] = parts;
                 const qrTimestamp = parseInt(qrTimeStr, 10);
                 const currentTimestamp = Date.now();
                 const latency = currentTimestamp - qrTimestamp;
@@ -573,8 +568,8 @@
                     return;
                 }
 
-                // Unique session tracking key per roll number and section/period session
-                const sessionKey = `attended_${subCode}_${sec}_P${period}_${loggedInUser}`;
+                // Create a unique session tracking key per roll number and section/period session
+                const sessionKey = `attended_${subCode}_${section}_P${period}_${loggedInUser}`;
                 if (localStorage.getItem(sessionKey) === 'true') {
                     showAlert(studentAlert, `❌ You have already scanned for this roll number!`, 'error');
                     if (html5QrCode) {
@@ -586,8 +581,10 @@
                 }
 
                 const markTime = new Date().toLocaleTimeString();
+                const targetTopic = `${MQTT_BASE_BASE || MQTT_BASE_TOPIC}/${subCode}_${section}_P${period}`;
 
                 const payload = {
+                    topic: `${MQTT_BASE_TOPIC}/${subCode}_${section}_P${period}`,
                     type: 'ATTENDANCE',
                     rollNo: loggedInUser,
                     name: loggedInName,
@@ -596,13 +593,12 @@
                     sessionKey: sessionKey
                 };
 
-                // Mark session as attended for this roll number
                 localStorage.setItem(sessionKey, 'true');
 
                 const payloadString = JSON.stringify(payload);
 
-                client.publish(MQTT_TOPIC, payloadString, { qos: 1 });
-                localStorage.setItem('sync_attendance_payload', payloadString);
+                client.publish(payload.topic, payloadString, { qos: 1 });
+                localStorage.setItem(`sync_attendance_${subCode}_${section}_P${period}`, payloadString);
 
                 handleIncomingData(payloadString);
                 
@@ -614,7 +610,7 @@
                     });
                 }
             } else {
-                showAlert(studentAlert, 'Invalid QR format.', 'error');
+                showAlert(studentAlert, 'Invalid or Mismatched Classroom QR Code.', 'error');
             }
         } catch(e) {
             showAlert(studentAlert, 'Error processing QR frame.', 'error');
@@ -626,13 +622,16 @@
     function handleGenerateQR(e) {
         e.preventDefault();
         classDetails = {
-            className: document.getElementById('class-name').value,
-            section: document.getElementById('class-section').value,
-            subject: document.getElementById('subject-name').value,
-            subjectCode: document.getElementById('subject-code').value,
-            topic: document.getElementById('topic-name').value,
-            period: document.getElementById('period').value
+            className: document.getElementById('class-name').value.trim(),
+            section: document.getElementById('class-section').value.trim(),
+            subject: document.getElementById('subject-name').value.trim(),
+            subjectCode: document.getElementById('subject-code').value.trim(),
+            topic: document.getElementById('topic-name').value.trim(),
+            period: document.getElementById('period').value.trim()
         };
+
+        activeSessionTopic = `${MQTT_BASE_TOPIC}/${classDetails.subjectCode}_${classDetails.section}_P${classDetails.period}`;
+        client.subscribe(activeSessionTopic);
 
         document.getElementById('qr-output').style.display = 'block';
 
@@ -647,6 +646,7 @@
         qrContainer.innerHTML = '';
 
         const timestamp = Date.now();
+        // Embedded hidden section token validation string
         const payloadStr = `ATTEND|${classDetails.subjectCode}|${classDetails.section}|P${classDetails.period}|${timestamp}`;
 
         new QRCode(qrContainer, { 
@@ -656,7 +656,7 @@
             correctLevel: QRCode.CorrectLevel.L
         });
 
-        // Clear tooltips so hovering over the QR code reveals no information
+        // Strip hover tooltips so hovering over the QR code reveals no internal payload information
         qrContainer.removeAttribute('title');
         const img = qrContainer.querySelector('img');
         if (img) img.removeAttribute('title');
@@ -693,9 +693,9 @@
 
     function clearRoster() {
         if (confirm("Clear attendance list for this session?")) {
-            const clearPayload = JSON.stringify({ type: 'CLEAR' });
-            client.publish(MQTT_TOPIC, clearPayload);
-            localStorage.setItem('sync_attendance_payload', clearPayload);
+            const clearPayload = JSON.stringify({ topic: activeSessionTopic, type: 'CLEAR' });
+            client.publish(activeSessionTopic, clearPayload);
+            localStorage.setItem(`sync_attendance_${classDetails.subjectCode}_${classDetails.section}_P${classDetails.period}`, clearPayload);
             
             attendanceRecords = [];
             renderRosterTable();
