@@ -105,6 +105,7 @@
             outline: none;
             background: #0f172a;
             color: #fff;
+            text-transform: uppercase;
         }
 
         .submit-btn {
@@ -388,17 +389,18 @@
 
         <form onsubmit="handleGenerateQR(event)">
             <div class="grid-2">
-                <div class="form-group"><label>Department / Class</label><input type="text" id="class-name" placeholder="e.g. CSE" required></div>
-                <div class="form-group"><label>Section</label><input type="text" id="class-section" placeholder="e.g. A" required></div>
+                <div class="form-group"><label>Department</label><input type="text" id="class-dept" placeholder="e.g. CSE" required oninput="this.value = this.value.toUpperCase()"></div>
+                <div class="form-group"><label>Class / Year</label><input type="text" id="class-year" placeholder="e.g. III" required oninput="this.value = this.value.toUpperCase()"></div>
             </div>
             <div class="grid-2">
-                <div class="form-group"><label>Subject</label><input type="text" id="subject-name" placeholder="e.g. DBMS" required></div>
-                <div class="form-group"><label>Subject Code</label><input type="text" id="subject-code" placeholder="e.g. CS3491" required></div>
-            </div>
-            <div class="grid-2">
-                <div class="form-group"><label>Topic</label><input type="text" id="topic-name" placeholder="e.g. Normalization" required></div>
+                <div class="form-group"><label>Section</label><input type="text" id="class-section" placeholder="e.g. A" required oninput="this.value = this.value.toUpperCase()"></div>
                 <div class="form-group"><label>Period</label><input type="number" id="period" min="1" max="8" required></div>
             </div>
+            <div class="grid-2">
+                <div class="form-group"><label>Subject</label><input type="text" id="subject-name" placeholder="e.g. DBMS" required oninput="this.value = this.value.toUpperCase()"></div>
+                <div class="form-group"><label>Subject Code</label><input type="text" id="subject-code" placeholder="e.g. CS3491" required oninput="this.value = this.value.toUpperCase()"></div>
+            </div>
+            <div class="form-group"><label>Topic</label><input type="text" id="topic-name" placeholder="e.g. Normalization" required oninput="this.value = this.value.toUpperCase()"></div>
             <button type="submit" class="submit-btn" style="background: #16a34a;">Start Live Session</button>
         </form>
 
@@ -431,36 +433,40 @@
 
         <div class="header">
             <h2>Search Records</h2>
-            <p>Filter by Department, Section, Date & Period</p>
+            <p>Filter by Department, Class/Year, Section, Date & Period (Type ALL for wildcard)</p>
         </div>
 
-        <div class="form-group">
-            <label>Department / Class</label>
-            <input type="text" id="search-dept" placeholder="e.g. CSE">
-        </div>
-        <div class="form-group">
-            <label>Section</label>
-            <input type="text" id="search-sec" placeholder="e.g. A">
+        <div class="grid-2">
+            <div class="form-group">
+                <label>Department</label>
+                <input type="text" id="search-dept" placeholder="e.g. CSE or ALL" oninput="this.value = this.value.toUpperCase()">
+            </div>
+            <div class="form-group">
+                <label>Class / Year</label>
+                <input type="text" id="search-year" placeholder="e.g. III or ALL" oninput="this.value = this.value.toUpperCase()">
+            </div>
         </div>
         <div class="grid-2">
             <div class="form-group">
-                <label>Date (YYYY-MM-DD)</label>
-                <input type="date" id="search-date">
+                <label>Section</label>
+                <input type="text" id="search-sec" placeholder="e.g. A or ALL" oninput="this.value = this.value.toUpperCase()">
             </div>
             <div class="form-group">
                 <label>Period</label>
-                <input type="number" id="search-period" placeholder="e.g. 3" min="1" max="8">
+                <input type="text" id="search-period" placeholder="e.g. 3 or ALL" oninput="this.value = this.value.toUpperCase()">
             </div>
+        </div>
+        <div class="form-group">
+            <label>Date (YYYY-MM-DD)</label>
+            <input type="date" id="search-date">
         </div>
         <button type="button" class="submit-btn" onclick="searchAttendanceRecords()">Search Record</button>
 
         <div id="record-search-results" style="margin-top: 16px; display: none;">
-            <h3 id="record-filename-title" style="font-size: 13px; color: #38bdf8; margin-bottom: 6px;"></h3>
-            <table class="attendance-table">
-                <thead><tr><th>Roll No</th><th>Name</th><th>Time</th><th>Status</th></tr></thead>
-                <tbody id="record-results-body"></tbody>
-            </table>
-            <button type="button" class="download-btn" id="record-download-btn" onclick="downloadArchivedPDF()">Download Record PDF</button>
+            <!-- Top Consolidated PDF Download Button for ALL or Specific result -->
+            <button type="button" class="download-btn" id="top-download-btn" onclick="downloadArchivedPDF()" style="margin-bottom: 14px; background: #2563eb;">Download Consolidated PDF Report</button>
+            
+            <div id="record-results-container"></div>
         </div>
         <div id="record-alert" class="alert-box error"></div>
     </div>
@@ -483,7 +489,7 @@
 </div>
 
 <script>
-    const MQTT_BASE_TOPIC = "kcet/qr_attendance_multiclass_v25";
+    const MQTT_BASE_TOPIC = "kcet/qr_attendance_multiclass_v26";
     const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
 
     let attendanceRecords = [];
@@ -562,8 +568,8 @@
 
     function handleLogin(e) {
         e.preventDefault();
-        loggedInName = document.getElementById('user-fullname').value.trim();
-        const user = document.getElementById('username').value.trim();
+        loggedInName = document.getElementById('user-fullname').value.trim().toUpperCase();
+        const user = document.getElementById('username').value.trim().toUpperCase();
         const pass = document.getElementById('password').value.trim();
         const alertBox = document.getElementById('login-alert');
 
@@ -642,7 +648,7 @@
 
             const parts = decodedText.split('|');
             if (parts.length >= 6) {
-                const [_, subCode, section, period, sessionSalt, qrTimeStr] = parts;
+                const [_, dept, year, sec, period, sessionSalt, qrTimeStr] = parts;
                 const qrTimestamp = parseInt(qrTimeStr, 10);
                 const currentTimestamp = Date.now();
                 const latency = currentTimestamp - qrTimestamp;
@@ -676,7 +682,7 @@
                 }
 
                 const markTime = new Date().toLocaleTimeString();
-                const sessionID = `${subCode}_${section}_P${period}`;
+                const sessionID = `${dept}_${year}_${sec}_P${period}`;
 
                 const payload = {
                     topic: `${MQTT_BASE_TOPIC}/${sessionID}`,
@@ -713,21 +719,21 @@
     function handleGenerateQR(e) {
         e.preventDefault();
         classDetails = {
-            className: document.getElementById('class-name').value.trim(),
-            section: document.getElementById('class-section').value.trim(),
-            subject: document.getElementById('subject-name').value.trim(),
-            subjectCode: document.getElementById('subject-code').value.trim(),
-            topic: document.getElementById('topic-name').value.trim(),
+            department: document.getElementById('class-dept').value.trim().toUpperCase(),
+            year: document.getElementById('class-year').value.trim().toUpperCase(),
+            section: document.getElementById('class-section').value.trim().toUpperCase(),
+            subject: document.getElementById('subject-name').value.trim().toUpperCase(),
+            subjectCode: document.getElementById('subject-code').value.trim().toUpperCase(),
+            topic: document.getElementById('topic-name').value.trim().toUpperCase(),
             period: document.getElementById('period').value.trim()
         };
 
         currentSessionSalt = `s_${loggedInUser}_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 9)}`;
         sessionStartTime = new Date();
 
-        activeSessionTopic = `${MQTT_BASE_TOPIC}/${classDetails.subjectCode}_${classDetails.section}_P${classDetails.period}`;
+        activeSessionTopic = `${MQTT_BASE_TOPIC}/${classDetails.department}_${classDetails.year}_${classDetails.section}_P${classDetails.period}`;
         client.subscribe(activeSessionTopic);
 
-        // Save session meta to tracking storage
         saveSessionTrackMeta('RUNNING');
 
         document.getElementById('qr-output').style.display = 'block';
@@ -743,7 +749,7 @@
         qrContainer.innerHTML = '';
 
         const timestamp = Date.now();
-        const payloadStr = `ATTEND|${classDetails.subjectCode}|${classDetails.section}|${classDetails.period}|${currentSessionSalt}|${timestamp}`;
+        const payloadStr = `ATTEND|${classDetails.department}|${classDetails.year}|${classDetails.section}|${classDetails.period}|${currentSessionSalt}|${timestamp}`;
 
         new QRCode(qrContainer, { 
             text: payloadStr, 
@@ -765,7 +771,8 @@
         const trackData = {
             teacherId: loggedInUser,
             teacherName: loggedInName,
-            department: classDetails.className,
+            department: classDetails.department,
+            year: classDetails.year,
             section: classDetails.section,
             subjectCode: classDetails.subjectCode,
             subject: classDetails.subject,
@@ -784,8 +791,8 @@
         if (!classDetails.subjectCode) return;
         const today = new Date().toISOString().split('T')[0];
         
-        // Format naming convention: department_section_date_period
-        const recordKey = `record_${classDetails.className}_${classDetails.section}_${today}_P${classDetails.period}`;
+        // Naming format: department_section_date_period
+        const recordKey = `record_${classDetails.department}_${classDetails.year}_${classDetails.section}_${today}_P${classDetails.period}`;
         
         const archivePayload = {
             classDetails: classDetails,
@@ -806,81 +813,115 @@
     }
 
     function searchAttendanceRecords() {
-        const dept = document.getElementById('search-dept').value.trim();
-        const sec = document.getElementById('search-sec').value.trim();
+        const dept = document.getElementById('search-dept').value.trim().toUpperCase();
+        const year = document.getElementById('search-year').value.trim().toUpperCase();
+        const sec = document.getElementById('search-sec').value.trim().toUpperCase();
         const date = document.getElementById('search-date').value.trim();
-        const period = document.getElementById('search-period').value.trim();
+        const period = document.getElementById('search-period').value.trim().toUpperCase();
         const alertBox = document.getElementById('record-alert');
-        const resultsDiv = document.getElementById('record-search-results');
+        const resultsContainer = document.getElementById('record-results-container');
+        const searchResultsDiv = document.getElementById('record-search-results');
 
-        if (!dept || !sec || !date || !period) {
-            showAlert(alertBox, 'Please fill in Department, Section, Date, and Period to search.');
-            resultsDiv.style.display = 'none';
+        if (!dept || !year || !sec || !date || !period) {
+            showAlert(alertBox, 'Please fill in all search fields (use ALL for wildcard).');
+            searchResultsDiv.style.display = 'none';
             return;
         }
 
-        const recordKey = `record_${dept}_${sec}_${date}_P${period}`;
-        const savedData = localStorage.getItem(recordKey);
+        // Find matching records in localStorage
+        const allKeys = Object.keys(localStorage).filter(k => k.startsWith('record_'));
+        const matchedRecords = [];
 
-        if (!savedData) {
-            showAlert(alertBox, `No attendance record found for: ${dept}_${sec}_${date}_P${period}`);
-            resultsDiv.style.display = 'none';
+        allKeys.forEach(k => {
+            // record_DEPT_YEAR_SEC_YYYY-MM-DD_PX
+            const parts = k.replace('record_', '').split('_');
+            if (parts.length >= 6) {
+                const [rDept, rYear, rSec, rDate, rPeriod] = parts;
+                
+                const matchDept = (dept === 'ALL' || rDept === dept);
+                const matchYear = (year === 'ALL' || rYear === year);
+                const matchSec = (sec === 'ALL' || rSec === sec);
+                const matchDate = (date === rDate);
+                const matchPeriod = (period === 'ALL' || rPeriod === `P${period}` || rPeriod === period);
+
+                if (matchDept && matchYear && matchSec && matchDate && matchPeriod) {
+                    matchedRecords.push(JSON.parse(localStorage.getItem(k)));
+                }
+            }
+        });
+
+        if (matchedRecords.length === 0) {
+            showAlert(alertBox, `No attendance records found matching criteria.`);
+            searchResultsDiv.style.display = 'none';
             return;
         }
 
         alertBox.style.display = 'none';
-        const parsed = JSON.parse(savedData);
-        
-        document.getElementById('record-filename-title').innerText = `File: ${dept}_${sec}_${date}_P${period} (${parsed.records.length} Present)`;
-        
-        const tbody = document.getElementById('record-results-body');
-        if (parsed.records.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="4" style="color: #64748b;">No students marked present.</td></tr>';
-        } else {
-            tbody.innerHTML = parsed.records.map(item => `
-                <tr>
-                    <td><strong>${item.rollNo}</strong></td>
-                    <td>${item.name}</td>
-                    <td>${item.timestamp || 'N/A'}</td>
-                    <td class="badge-present">${item.status}</td>
-                </tr>
-            `).join('');
-        }
+        window.currentMatchedRecords = matchedRecords;
 
-        resultsDiv.style.display = 'block';
-        window.currentArchivedRecord = parsed;
+        // Render results with PDF at the top
+        let htmlHTML = '';
+        matchedRecords.forEach((parsed, index) => {
+            htmlHTML += `
+                <div style="background: #0f172a; padding: 12px; border-radius: 10px; margin-bottom: 14px; border: 1px solid #334155;">
+                    <h3 style="font-size: 13px; color: #38bdf8; margin-bottom: 4px;">File: ${parsed.classDetails.department}_${parsed.classDetails.year}_${parsed.classDetails.section}_${parsed.date}_P${parsed.classDetails.period} (${parsed.records.length} Present)</h3>
+                    <p style="font-size: 11px; color: #94a3b8; margin-bottom: 8px;">Subject: ${parsed.classDetails.subject} (${parsed.classDetails.subjectCode}) | Teacher: ${parsed.submittedBy}</p>
+                    <table class="attendance-table">
+                        <thead><tr><th>Roll No</th><th>Name</th><th>Time</th><th>Status</th></tr></thead>
+                        <tbody>
+                            ${parsed.records.length === 0 ? '<tr><td colspan="4" style="color: #64748b;">No students marked present.</td></tr>' : 
+                              parsed.records.map(item => `
+                                <tr>
+                                    <td><strong>${item.rollNo}</strong></td>
+                                    <td>${item.name}</td>
+                                    <td>${item.timestamp || 'N/A'}</td>
+                                    <td class="badge-present">${item.status}</td>
+                                </tr>
+                              `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+        });
+
+        resultsContainer.innerHTML = htmlHTML;
+        searchResultsDiv.style.display = 'block';
     }
 
     function downloadArchivedPDF() {
-        if (!window.currentArchivedRecord) return;
-        const parsed = window.currentArchivedRecord;
+        if (!window.currentMatchedRecords || window.currentMatchedRecords.length === 0) return;
+        const records = window.currentMatchedRecords;
         const { jsPDF } = window.jspdf;
         const doc = new jsPDF();
 
         doc.setFontSize(16);
-        doc.text("CLASS ATTENDANCE REPORT (ARCHIVED)", 14, 15);
+        doc.text("CONSOLIDATED ATTENDANCE REPORT (ARCHIVED)", 14, 15);
 
-        doc.setFontSize(10);
-        doc.text(`Class - Section: ${parsed.classDetails.className} - ${parsed.classDetails.section}`, 14, 25);
-        doc.text(`Period: Period ${parsed.classDetails.period}`, 120, 25);
-        doc.text(`Subject: ${parsed.classDetails.subject} (${parsed.classDetails.subjectCode})`, 14, 32);
-        doc.text(`Date: ${parsed.date}`, 120, 32);
-        doc.text(`Submitted By: ${parsed.submittedBy}`, 14, 39);
-        doc.text(`Total Present: ${parsed.records.length}`, 120, 39);
+        let startY = 25;
+        records.forEach((parsed, idx) => {
+            if (idx > 0) {
+                doc.addPage();
+                startY = 20;
+            }
 
-        const tableBody = parsed.records.map((item, index) => [
-            index + 1, item.rollNo, item.name, item.timestamp || 'N/A', item.status
-        ]);
+            doc.setFontSize(12);
+            doc.text(`Class: ${parsed.classDetails.department} - ${parsed.classDetails.year} (${parsed.classDetails.section})`, 14, startY);
+            doc.text(`Subject: ${parsed.classDetails.subject} | Date: ${parsed.date} | Period: P${parsed.classDetails.period}`, 14, startY + 7);
 
-        doc.autoTable({
-            startY: 45,
-            head: [['S.No', 'Roll Number', 'Student Name', 'Time', 'Status']],
-            body: tableBody,
-            theme: 'grid',
-            headStyles: { fillColor: [37, 99, 235] }
+            const tableBody = parsed.records.map((item, index) => [
+                index + 1, item.rollNo, item.name, item.timestamp || 'N/A', item.status
+            ]);
+
+            doc.autoTable({
+                startY: startY + 12,
+                head: [['S.No', 'Roll Number', 'Student Name', 'Time', 'Status']],
+                body: tableBody,
+                theme: 'grid',
+                headStyles: { fillColor: [37, 99, 235] }
+            });
         });
 
-        doc.save(`Attendance_${parsed.classDetails.className}_${parsed.classDetails.section}_${parsed.date}_P${parsed.classDetails.period}.pdf`);
+        doc.save(`Consolidated_Attendance_Report.pdf`);
     }
 
     function renderTrackDashboard() {
@@ -896,7 +937,7 @@
             const data = JSON.parse(localStorage.getItem(k));
             return `
                 <div style="background: #0f172a; padding: 12px; border-radius: 10px; margin-bottom: 8px; border: 1px solid #334155;">
-                    <strong>${data.department} - Section ${data.section}</strong> (${data.subjectCode})<br>
+                    <strong>${data.department} - ${data.year} Year (Sec ${data.section})</strong> (${data.subjectCode})<br>
                     <span style="color: #94a3b8;">Teacher: ${data.teacherName} | Period: P${data.period}</span><br>
                     <span style="color: #94a3b8;">Started: ${data.startTime} | Ended: ${data.endTime}</span><br>
                     Status: <strong style="color: ${data.status === 'RUNNING' ? '#38bdf8' : '#4ade80'}">${data.status}</strong> | 
@@ -935,7 +976,7 @@
 
     function clearRoster() {
         if (confirm("Clear attendance list for this session?")) {
-            const sessionID = `${classDetails.subjectCode}_${classDetails.section}_P${classDetails.period}`;
+            const sessionID = `${classDetails.department}_${classDetails.year}_${classDetails.section}_P${classDetails.period}`;
             const clearPayload = JSON.stringify({ topic: activeSessionTopic, type: 'CLEAR' });
             client.publish(activeSessionTopic, clearPayload);
             localStorage.setItem(`sync_attendance_${sessionID}`, clearPayload);
@@ -956,7 +997,7 @@
         doc.text("CLASS ATTENDANCE REPORT (VERIFIED PHYSICAL PRESENCE)", 14, 15);
 
         doc.setFontSize(10);
-        doc.text(`Class - Section: ${classDetails.className || 'N/A'} - ${classDetails.section || 'N/A'}`, 14, 25);
+        doc.text(`Department: ${classDetails.department || 'N/A'} | Class/Year: ${classDetails.year || 'N/A'} | Section: ${classDetails.section || 'N/A'}`, 14, 25);
         doc.text(`Period: Period ${classDetails.period || 'N/A'}`, 120, 25);
         
         doc.text(`Subject: ${classDetails.subject || 'N/A'} (${classDetails.subjectCode || 'N/A'})`, 14, 32);
