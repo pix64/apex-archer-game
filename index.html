@@ -344,7 +344,7 @@
 
         <!-- AUTH LOGIN FORM -->
         <div id="auth-form-container">
-            <form onsubmit="handleLogin(event)">
+            <form onsubmit="handleLogin(event); return false;">
                 <div id="student-class-fields">
                     <div class="grid-2">
                         <div class="form-group">
@@ -390,7 +390,7 @@
             <p>Enter Admin Credentials</p>
         </div>
 
-        <form onsubmit="handleAdminLogin(event)">
+        <form onsubmit="handleAdminLogin(event); return false;">
             <div class="form-group">
                 <label>Admin ID</label>
                 <input type="text" id="admin-login-id" placeholder="Enter Admin ID" required oninput="this.value = this.value.toUpperCase()">
@@ -455,7 +455,7 @@
             <p><span class="status-dot" id="sync-dot"></span><span id="sync-status">Connecting Live Sync...</span></p>
         </div>
 
-        <form onsubmit="handleGenerateQR(event)">
+        <form onsubmit="handleGenerateQR(event); return false;">
             <div class="grid-2">
                 <div class="form-group"><label>Department</label><input type="text" id="class-dept" placeholder="e.g. CSE" required oninput="this.value = this.value.toUpperCase()"></div>
                 <div class="form-group"><label>Class / Year</label><input type="text" id="class-year" placeholder="e.g. III" required oninput="this.value = this.value.toUpperCase()"></div>
@@ -509,7 +509,7 @@
         <!-- Add / Edit Modal Form -->
         <div id="admin-form-modal" style="display: none; background: #0f172a; padding: 14px; border-radius: 12px; border: 1px solid #334155; margin-top: 14px;">
             <h3 id="modal-title" style="font-size: 14px; color: #38bdf8; margin-bottom: 10px;">Add New Classroom</h3>
-            <form onsubmit="handleSaveClassStudents(event)">
+            <form onsubmit="handleSaveClassStudents(event); return false;">
                 <div class="grid-2">
                     <div class="form-group">
                         <label>Department</label>
@@ -566,7 +566,7 @@
                 <button type="button" class="role-btn" id="btn-rec-role-admin" onclick="setRecordLoginRole('admin')">Admin</button>
             </div>
 
-            <form onsubmit="handleRecordsAuth(event)">
+            <form onsubmit="handleRecordsAuth(event); return false;">
                 <div class="form-group">
                     <label id="rec-id-label">Roll Number</label>
                     <input type="text" id="record-auth-id" placeholder="Enter ID" required oninput="this.value = this.value.toUpperCase()">
@@ -639,7 +639,7 @@
 </div>
 
 <script>
-    const MQTT_BASE_TOPIC = "kcet/qr_attendance_multiclass_v42";
+    const MQTT_BASE_TOPIC = "kcet/qr_attendance_multiclass_v43";
     const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
 
     let attendanceRecords = [];
@@ -723,7 +723,7 @@
     }
 
     function handleAdminLogin(e) {
-        e.preventDefault();
+        if (e) e.preventDefault();
         const adminId = document.getElementById('admin-login-id').value.trim().toUpperCase();
         const pass = document.getElementById('admin-login-pass').value.trim();
         const alertBox = document.getElementById('admin-login-alert');
@@ -790,7 +790,7 @@
     }
 
     function handleRecordsAuth(e) {
-        e.preventDefault();
+        if (e) e.preventDefault();
         const authId = document.getElementById('record-auth-id').value.trim().toUpperCase();
         const authPass = document.getElementById('record-auth-pass').value.trim();
         const alertBox = document.getElementById('records-auth-alert');
@@ -873,7 +873,7 @@
     }
 
     function handleLogin(e) {
-        e.preventDefault();
+        if (e) e.preventDefault();
         const alertBox = document.getElementById('login-alert');
 
         if (currentRole === 'student') {
@@ -1027,7 +1027,7 @@
     }
 
     function handleSaveClassStudents(e) {
-        e.preventDefault();
+        if (e) e.preventDefault();
         const dept = document.getElementById('admin-dept').value.trim().toUpperCase();
         const year = document.getElementById('admin-year').value.trim().toUpperCase();
         const sec = document.getElementById('admin-sec').value.trim().toUpperCase();
@@ -1237,7 +1237,7 @@
     function onScanFailure(error) {}
 
     function handleGenerateQR(e) {
-        e.preventDefault();
+        if (e) e.preventDefault();
         classDetails = {
             department: document.getElementById('class-dept').value.trim().toUpperCase(),
             year: document.getElementById('class-year').value.trim().toUpperCase(),
@@ -1436,7 +1436,7 @@
             `;
         });
 
-        resultsContainer.innerHTML = htmlHTML;
+0        resultsContainer.innerHTML = htmlHTML;
         searchResultsDiv.style.display = 'block';
     }
 
