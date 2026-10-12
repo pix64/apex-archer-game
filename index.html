@@ -328,7 +328,7 @@
 
 <div class="app-card">
 
-    <!-- GENERAL LOGIN / PORTAL VIEW (DEFAULT LANDING) -->
+    <!-- GENERAL LOGIN / PORTAL VIEW -->
     <div id="login-view" class="view-section active">
         <div class="header">
             <h2>Attendance Portal</h2>
@@ -342,9 +342,8 @@
             <button type="button" class="role-btn" id="btn-role-track" onclick="setRole('track')">Track</button>
         </div>
 
-        <!-- AUTH LOGIN FORM -->
         <div id="auth-form-container">
-            <form onsubmit="handleLogin(event); return false;">
+            <form id="main-login-form" onsubmit="handleLogin(event); return false;">
                 <div id="student-class-fields">
                     <div class="grid-2">
                         <div class="form-group">
@@ -390,7 +389,7 @@
             <p>Enter Admin Credentials</p>
         </div>
 
-        <form onsubmit="handleAdminLogin(event); return false;">
+        <form id="admin-login-form" onsubmit="handleAdminLogin(event); return false;">
             <div class="form-group">
                 <label>Admin ID</label>
                 <input type="text" id="admin-login-id" placeholder="Enter Admin ID" required oninput="this.value = this.value.toUpperCase()">
@@ -455,7 +454,7 @@
             <p><span class="status-dot" id="sync-dot"></span><span id="sync-status">Connecting Live Sync...</span></p>
         </div>
 
-        <form onsubmit="handleGenerateQR(event); return false;">
+        <form id="teacher-session-form" onsubmit="handleGenerateQR(event); return false;">
             <div class="grid-2">
                 <div class="form-group"><label>Department</label><input type="text" id="class-dept" placeholder="e.g. CSE" required oninput="this.value = this.value.toUpperCase()"></div>
                 <div class="form-group"><label>Class / Year</label><input type="text" id="class-year" placeholder="e.g. III" required oninput="this.value = this.value.toUpperCase()"></div>
@@ -506,10 +505,9 @@
 
         <div id="admin-classes-list"></div>
 
-        <!-- Add / Edit Modal Form -->
         <div id="admin-form-modal" style="display: none; background: #0f172a; padding: 14px; border-radius: 12px; border: 1px solid #334155; margin-top: 14px;">
             <h3 id="modal-title" style="font-size: 14px; color: #38bdf8; margin-bottom: 10px;">Add New Classroom</h3>
-            <form onsubmit="handleSaveClassStudents(event); return false;">
+            <form id="admin-class-form" onsubmit="handleSaveClassStudents(event); return false;">
                 <div class="grid-2">
                     <div class="form-group">
                         <label>Department</label>
@@ -553,7 +551,6 @@
             <button type="button" class="logout-btn" onclick="setRole('student')">Back</button>
         </div>
 
-        <!-- AUTH GATE FOR RECORDS WITH SWITCHABLE ROLE SELECTOR -->
         <div id="records-auth-container">
             <div class="header">
                 <h2>Secure Archive Access</h2>
@@ -566,7 +563,7 @@
                 <button type="button" class="role-btn" id="btn-rec-role-admin" onclick="setRecordLoginRole('admin')">Admin</button>
             </div>
 
-            <form onsubmit="handleRecordsAuth(event); return false;">
+            <form id="records-auth-form" onsubmit="handleRecordsAuth(event); return false;">
                 <div class="form-group">
                     <label id="rec-id-label">Roll Number</label>
                     <input type="text" id="record-auth-id" placeholder="Enter ID" required oninput="this.value = this.value.toUpperCase()">
@@ -580,7 +577,6 @@
             <div id="records-auth-alert" class="alert-box error"></div>
         </div>
 
-        <!-- SEARCH CONTENT (HIDDEN UNTIL AUTHENTICATED) -->
         <div id="records-content-container" style="display: none;">
             <div class="header">
                 <h2>Search Records</h2>
@@ -639,7 +635,7 @@
 </div>
 
 <script>
-    const MQTT_BASE_TOPIC = "kcet/qr_attendance_multiclass_v43";
+    const MQTT_BASE_TOPIC = "kcet/qr_attendance_multiclass_v44";
     const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
 
     let attendanceRecords = [];
@@ -737,6 +733,7 @@
             alertBox.style.display = 'block';
             alertBox.innerText = 'Admin ID and Password must match!';
         }
+        return false;
     }
 
     function setRole(role) {
@@ -836,6 +833,7 @@
         } else {
             showAlert(alertBox, 'INVALID CREDENTIALS! PLEASE CHECK YOUR ROLE, ID, AND PASSWORD.');
         }
+        return false;
     }
 
     function parseRosterLines(rawText) {
@@ -888,7 +886,7 @@
 
             if (!savedDataJSON) {
                 showAlert(alertBox, `NO REGISTERED STUDENT ROSTER FOUND FOR ${dept} - ${year} YEAR - SECTION ${sec}. PLEASE CONTACT ADMIN.`);
-                return;
+                return false;
             }
 
             const savedObj = JSON.parse(savedDataJSON);
@@ -927,6 +925,7 @@
                 showAlert(alertBox, 'PLEASE ENTER VALID EMPLOYEE ID AND PASSWORD.');
             }
         }
+        return false;
     }
 
     async function handleStudentFileUpload(e) {
@@ -1040,7 +1039,7 @@
             alertBox.className = 'alert-box error';
             alertBox.innerText = 'INVALID FORMAT! ENSURE LINES CONTAIN 4 FIELDS (S.NO = NAME = ROLLNUMBER = PASSWORD)';
             alertBox.style.display = 'block';
-            return;
+            return false;
         }
 
         const classData = {
@@ -1060,6 +1059,7 @@
         alertBox.style.display = 'block';
         closeAddClassModal();
         renderAdminClasses();
+        return false;
     }
 
     function renderAdminClasses() {
@@ -1262,6 +1262,7 @@
 
         updateDynamicQR();
         qrRefreshInterval = setInterval(updateDynamicQR, 1200);
+        return false;
     }
 
     function updateDynamicQR() {
@@ -1436,7 +1437,7 @@
             `;
         });
 
-0        resultsContainer.innerHTML = htmlHTML;
+        resultsContainer.innerHTML = htmlHTML;
         searchResultsDiv.style.display = 'block';
     }
 
