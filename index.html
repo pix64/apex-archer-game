@@ -553,40 +553,63 @@
             <button type="button" class="logout-btn" onclick="setRole('student')">Back</button>
         </div>
 
-        <div class="header">
-            <h2>Search Records</h2>
-            <p>Filter by Department, Class/Year, Section, Date & Period (Type ALL for wildcard)</p>
+        <!-- AUTH GATE FOR RECORDS -->
+        <div id="records-auth-container">
+            <div class="header">
+                <h2>Secure Archive Access</h2>
+                <p>Enter your credentials to view attendance</p>
+            </div>
+            <form onsubmit="handleRecordsAuth(event)">
+                <div class="form-group">
+                    <label>Roll Number / Teacher ID / Admin ID</label>
+                    <input type="text" id="record-auth-id" placeholder="Enter ID" required oninput="this.value = this.value.toUpperCase()">
+                </div>
+                <div class="form-group">
+                    <label>Password</label>
+                    <input type="password" id="record-auth-pass" placeholder="Enter Password" required>
+                </div>
+                <button type="submit" class="submit-btn">Authenticate & View Records</button>
+            </form>
+            <div id="records-auth-alert" class="alert-box error"></div>
         </div>
 
-        <div class="grid-2">
-            <div class="form-group">
-                <label>Department</label>
-                <input type="text" id="search-dept" placeholder="e.g. CSE or ALL" oninput="this.value = this.value.toUpperCase()">
+        <!-- SEARCH CONTENT (HIDDEN UNTIL AUTHENTICATED) -->
+        <div id="records-content-container" style="display: none;">
+            <div class="header">
+                <h2>Search Records</h2>
+                <p>Filter by Department, Class/Year, Section, Date & Period (Type ALL for wildcard)</p>
             </div>
-            <div class="form-group">
-                <label>Class / Year</label>
-                <input type="text" id="search-year" placeholder="e.g. III or ALL" oninput="this.value = this.value.toUpperCase()">
-            </div>
-        </div>
-        <div class="grid-2">
-            <div class="form-group">
-                <label>Section</label>
-                <input type="text" id="search-sec" placeholder="e.g. A or ALL" oninput="this.value = this.value.toUpperCase()">
-            </div>
-            <div class="form-group">
-                <label>Period</label>
-                <input type="text" id="search-period" placeholder="e.g. 3 or ALL" oninput="this.value = this.value.toUpperCase()">
-            </div>
-        </div>
-        <div class="form-group">
-            <label>Date (YYYY-MM-DD)</label>
-            <input type="date" id="search-date">
-        </div>
-        <button type="button" class="submit-btn" onclick="searchAttendanceRecords()">Search Record</button>
 
-        <div id="record-search-results" style="margin-top: 16px; display: none;">
-            <button type="button" class="download-btn" id="top-download-btn" onclick="downloadArchivedPDF()" style="margin-bottom: 14px; background: #2563eb;">Download Consolidated PDF Report</button>
-            <div id="record-results-container"></div>
+            <div class="grid-2">
+                <div class="form-group">
+                    <label>Department</label>
+                    <input type="text" id="search-dept" placeholder="e.g. CSE or ALL" oninput="this.value = this.value.toUpperCase()">
+                </div>
+                <div class="form-group">
+                    <label>Class / Year</label>
+                    <input type="text" id="search-year" placeholder="e.g. III or ALL" oninput="this.value = this.value.toUpperCase()">
+                </div>
+            </div>
+            <div class="grid-2">
+                <div class="form-group">
+                    <label>Section</label>
+                    <input type="text" id="search-sec" placeholder="e.g. A or ALL" oninput="this.value = this.value.toUpperCase()">
+                </div>
+                <div class="form-group">
+                    <label>Period</label>
+                    <input type="text" id="search-period" placeholder="e.g. 3 or ALL" oninput="this.value = this.value.toUpperCase()">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Date (YYYY-MM-DD)</label>
+                <input type="date" id="search-date">
+            </div>
+            <button type="button" class="submit-btn" onclick="searchAttendanceRecords()">Search Record</button>
+
+            <div id="record-search-results" style="margin-top: 16px; display: none;">
+                <button type="button" class="download-btn" id="top-download-btn" onclick="downloadArchivedPDF()" style="margin-bottom: 14px; background: #2563eb;">Download Sorted Consolidated PDF Report</button>
+                <div id="record-results-container"></div>
+            </div>
         </div>
         <div id="record-alert" class="alert-box error"></div>
     </div>
@@ -599,8 +622,8 @@
         </div>
 
         <div class="header">
-            <h2>Active & Past Sessions</h2>
-            <p>Monitor creation time, running status & submissions</p>
+            <h2>Session Tracking</h2>
+            <p>Active, Completed & Missing Attendance Sessions</p>
         </div>
 
         <div id="track-sessions-list" style="margin-top: 10px; font-size: 12px;"></div>
@@ -609,7 +632,7 @@
 </div>
 
 <script>
-    const MQTT_BASE_TOPIC = "kcet/qr_attendance_multiclass_v39";
+    const MQTT_BASE_TOPIC = "kcet/qr_attendance_multiclass_v40";
     const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
 
     let attendanceRecords = [];
@@ -628,8 +651,6 @@
         const status = document.getElementById('sync-status');
         if (dot) dot.classList.add('online');
         if (status) status.innerText = 'Engine Online & Connected';
-        
-        // Subscribe to global roster sync topic with retained message support across devices
         client.subscribe(`${MQTT_BASE_TOPIC}/roster/#`);
     });
 
@@ -721,6 +742,10 @@
 
         if (role === 'records') {
             switchView('records-view');
+            document.getElementById('records-auth-container').style.display = 'block';
+            document.getElementById('records-content-container').style.display = 'none';
+            document.getElementById('record-auth-id').value = '';
+            document.getElementById('record-auth-pass').value = '';
         } else if (role === 'track') {
             switchView('track-view');
             renderTrackDashboard();
@@ -737,6 +762,48 @@
                 groupFullname.style.display = 'block';
                 document.getElementById('id-label').innerText = 'EMPLOYEE ID';
             }
+        }
+    }
+
+    function handleRecordsAuth(e) {
+        e.preventDefault();
+        const authId = document.getElementById('record-auth-id').value.trim().toUpperCase();
+        const authPass = document.getElementById('record-auth-pass').value.trim();
+        const alertBox = document.getElementById('records-auth-alert');
+
+        // Verify credentials against saved student rosters, teacher pattern, or admin check
+        let authenticated = false;
+
+        // Check Admin
+        if (authPass === authId && authId.length > 0) {
+            authenticated = true;
+        }
+
+        // Check Teacher pattern ([YEAR]@[ID])
+        if (!authenticated && authPass.endsWith(`@${authId}`)) {
+            authenticated = true;
+        }
+
+        // Check Student rosters
+        if (!authenticated) {
+            const keys = Object.keys(localStorage).filter(k => k.startsWith('roster_'));
+            for (let k of keys) {
+                const savedObj = JSON.parse(localStorage.getItem(k) || '{}');
+                const roster = savedObj.roster || (Array.isArray(savedObj) ? savedObj : []);
+                const student = roster.find(s => s.rollNo.toUpperCase() === authId && s.password.trim() === authPass);
+                if (student) {
+                    authenticated = true;
+                    break;
+                }
+            }
+        }
+
+        if (authenticated) {
+            alertBox.style.display = 'none';
+            document.getElementById('records-auth-container').style.display = 'none';
+            document.getElementById('records-content-container').style.display = 'block';
+        } else {
+            showAlert(alertBox, 'INVALID CREDENTIALS! PLEASE CHECK YOUR ID AND PASSWORD.');
         }
     }
 
@@ -954,7 +1021,6 @@
         const rosterKey = `roster_${dept}_${year}_${sec}`;
         localStorage.setItem(rosterKey, JSON.stringify(classData));
 
-        // Publish with retained flag so any device connecting globally immediately receives the roster file
         const syncPayload = JSON.stringify({ dept, year, sec, data: classData });
         client.publish(`${MQTT_BASE_TOPIC}/roster/${dept}_${year}_${sec}`, syncPayload, { qos: 1, retain: true });
 
@@ -1190,7 +1256,7 @@
 
     function saveSessionTrackMeta(status, submitted = false) {
         const today = new Date().toISOString().split('T')[0];
-        const trackKey = `session_track_${loggedInUser}_${today}_P${classDetails.period}`;
+        const trackKey = `session_track_${loggedInUser}_${today}_P${classDetails.period}_${classDetails.department}_${classDetails.year}_${classDetails.section}`;
         const trackData = {
             teacherId: loggedInUser,
             teacherName: loggedInName,
@@ -1214,7 +1280,7 @@
         if (!classDetails.subjectCode) return;
         const today = new Date().toISOString().split('T')[0];
         
-        const recordKey = `record_${classDetails.department}_${classDetails.year}_${classDetails.section}_${today}_P${classDetails.period}`;
+        const recordKey = `record_${classDetails.year}_${classDetails.department}_${classDetails.section}_${today}_P${classDetails.period}`;
         
         const archivePayload = {
             classDetails: classDetails,
@@ -1251,12 +1317,13 @@
         }
 
         const allKeys = Object.keys(localStorage).filter(k => k.startsWith('record_'));
-        const matchedRecords = [];
+        let matchedRecords = [];
 
         allKeys.forEach(k => {
+            // record_[YEAR]_[DEPT]_[SEC]_[DATE]_[PERIOD]
             const parts = k.replace('record_', '').split('_');
             if (parts.length >= 5) {
-                const [rDept, rYear, rSec, rDate, rPeriod] = parts;
+                const [rYear, rDept, rSec, rDate, rPeriod] = parts;
                 
                 const matchDept = (dept === 'ALL' || rDept === dept);
                 const matchYear = (year === 'ALL' || rYear === year);
@@ -1276,6 +1343,19 @@
             return;
         }
 
+        // Sort records in increasing order: Year -> Department -> Section
+        matchedRecords.sort((a, b) => {
+            const yA = a.classDetails.year;
+            const yB = b.classDetails.year;
+            if (yA !== yB) return yA.localeCompare(yB, undefined, {numeric: true});
+
+            const dA = a.classDetails.department;
+            const dB = b.classDetails.department;
+            if (dA !== dB) return dA.localeCompare(dB);
+
+            return a.classDetails.section.localeCompare(b.classDetails.section);
+        });
+
         alertBox.style.display = 'none';
         window.currentMatchedRecords = matchedRecords;
 
@@ -1283,7 +1363,7 @@
         matchedRecords.forEach((parsed) => {
             htmlHTML += `
                 <div style="background: #0f172a; padding: 12px; border-radius: 10px; margin-bottom: 14px; border: 1px solid #334155;">
-                    <h3 style="font-size: 13px; color: #38bdf8; margin-bottom: 4px;">FILE: ${parsed.classDetails.department}_${parsed.classDetails.year}_${parsed.classDetails.section}_${parsed.date}_P${parsed.classDetails.period} (${parsed.records.length} PRESENT)</h3>
+                    <h3 style="font-size: 13px; color: #38bdf8; margin-bottom: 4px;">CLASS: ${parsed.classDetails.year} YEAR - ${parsed.classDetails.department} - SEC ${parsed.classDetails.section} (${parsed.date} P${parsed.classDetails.period}) - ${parsed.records.length} PRESENT</h3>
                     <p style="font-size: 11px; color: #94a3b8; margin-bottom: 8px;">SUBJECT: ${parsed.classDetails.subject} (${parsed.classDetails.subjectCode}) | TEACHER: ${parsed.submittedBy}</p>
                     <table class="attendance-table">
                         <thead><tr><th>ROLL NO</th><th>NAME</th><th>TIME</th><th>STATUS</th></tr></thead>
@@ -1314,7 +1394,7 @@
         const doc = new jsPDF();
 
         doc.setFontSize(16);
-        doc.text("CONSOLIDATED ATTENDANCE REPORT (ARCHIVED)", 14, 15);
+        doc.text("SORTED CONSOLIDATED ATTENDANCE REPORT", 14, 15);
 
         let startY = 25;
         records.forEach((parsed, idx) => {
@@ -1324,7 +1404,7 @@
             }
 
             doc.setFontSize(12);
-            doc.text(`DEPARTMENT: ${parsed.classDetails.department} | CLASS/YEAR: ${parsed.classDetails.year} | SECTION: ${parsed.classDetails.section}`, 14, startY);
+            doc.text(`YEAR: ${parsed.classDetails.year} | DEPARTMENT: ${parsed.classDetails.department} | SECTION: ${parsed.classDetails.section}`, 14, startY);
             doc.text(`SUBJECT: ${parsed.classDetails.subject} | DATE: ${parsed.date} | PERIOD: P${parsed.classDetails.period}`, 14, startY + 7);
 
             const tableBody = parsed.records.map((item, index) => [
@@ -1340,30 +1420,73 @@
             });
         });
 
-        doc.save(`CONSOLIDATED_ATTENDANCE_REPORT.pdf`);
+        doc.save(`SORTED_CONSOLIDATED_ATTENDANCE_REPORT.pdf`);
     }
 
     function renderTrackDashboard() {
         const container = document.getElementById('track-sessions-list');
-        const keys = Object.keys(localStorage).filter(k => k.startsWith('session_track_'));
+        const rosterKeys = Object.keys(localStorage).filter(k => k.startsWith('roster_'));
+        const trackKeys = Object.keys(localStorage).filter(k => k.startsWith('session_track_'));
 
-        if (keys.length === 0) {
-            container.innerHTML = '<p style="color: #64748b; text-align: center; padding: 20px;">NO SESSION HISTORY TRACKED YET.</p>';
-            return;
-        }
-
-        container.innerHTML = keys.map(k => {
+        let trackedMap = {};
+        trackKeys.forEach(k => {
             const data = JSON.parse(localStorage.getItem(k));
-            return `
-                <div style="background: #0f172a; padding: 12px; border-radius: 10px; margin-bottom: 8px; border: 1px solid #334155;">
-                    <strong>${data.department} - ${data.year} YEAR (SEC ${data.section})</strong> (${data.subjectCode})<br>
-                    <span style="color: #94a3b8;">TEACHER: ${data.teacherName} | PERIOD: P${data.period}</span><br>
-                    <span style="color: #94a3b8;">STARTED: ${data.startTime} | ENDED: ${data.endTime}</span><br>
-                    STATUS: <strong style="color: ${data.status === 'RUNNING' ? '#38bdf8' : '#4ade80'}">${data.status}</strong> | 
-                    SUBMITTED: <strong style="color: ${data.submitted ? '#4ade80' : '#ef4444'}">${data.submitted ? 'YES' : 'NO'}</strong>
-                </div>
-            `;
-        }).join('');
+            const key = `${data.year}_${data.department}_${data.section}_P${data.period}_${data.date}`;
+            trackedMap[key] = data;
+        });
+
+        let completedHTML = '<h3 style="font-size: 14px; color: #4ade80; margin-bottom: 8px;">✅ Attendance Taken / Completed Sessions:</h3>';
+        let missedHTML = '<h3 style="font-size: 14px; color: #ef4444; margin-top: 16px; margin-bottom: 8px;">❌ Attendance Not Taken / Missing Sessions:</h3>';
+
+        let hasCompleted = false;
+        let hasMissed = false;
+
+        trackKeys.forEach(k => {
+            const data = JSON.parse(localStorage.getItem(k));
+            if (data.submitted || data.status === 'ENDED') {
+                hasCompleted = true;
+                completedHTML += `
+                    <div style="background: #0f172a; padding: 10px; border-radius: 8px; margin-bottom: 6px; border: 1px solid #16a34a;">
+                        <strong>${data.year} YEAR - ${data.department} (SEC ${data.section})</strong> - P${data.period}<br>
+                        <span style="color: #94a3b8;">Subject: ${data.subject} (${data.subjectCode}) | Teacher: ${data.teacherName}</span><br>
+                        <span style="color: #4ade80;">Status: Completed & Submitted (${data.recordsCount} Present)</span>
+                    </div>
+                `;
+            } else {
+                hasMissed = true;
+                missedHTML += `
+                    <div style="background: #0f172a; padding: 10px; border-radius: 8px; margin-bottom: 6px; border: 1px solid #ef4444;">
+                        <strong>${data.year} YEAR - ${data.department} (SEC ${data.section})</strong> - P${data.period}<br>
+                        <span style="color: #94a3b8;">Subject: ${data.subject} (${data.subjectCode}) | Teacher: ${data.teacherName}</span><br>
+                        <span style="color: #38bdf8;">Status: Running / Pending Submission</span>
+                    </div>
+                `;
+            }
+        });
+
+        rosterKeys.forEach(k => {
+            const parts = k.replace('roster_', '').split('_');
+            const dept = parts[0];
+            const year = parts[1];
+            const sec = parts[2];
+            const today = new Date().toISOString().split('T')[0];
+            
+            // Check if any session for periods 1-8 was tracked for this class today
+            for (let p = 1; p <= 8; p++) {
+                const matchKey = `${year}_${dept}_${sec}_P${p}_${today}`;
+                const trackKeyMatch = Object.keys(localStorage).find(tk => tk.includes(`_P${p}_`) && tk.includes(dept) && tk.includes(year) && tk.includes(sec));
+                
+                if (!trackKeyMatch) {
+                    hasMissed = true;
+                    // Prevent duplicate entries if already added
+                }
+            }
+        });
+
+        if (!hasCompleted) completedHTML += '<p style="color: #64748b; margin-bottom: 10px;">No completed sessions found.</p>';
+        if (!hasMissed) missedHTML += '<p style="color: #64748b; margin-bottom: 10px;">All scheduled or active classes have attendance running/completed.</p>';
+
+        container.innerHTML = completedHTML + missedHTML;
     }
 
     function getSortedRecords() {
