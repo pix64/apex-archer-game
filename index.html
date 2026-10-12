@@ -546,7 +546,7 @@
         <div id="admin-alert" class="alert-box success" style="margin-top: 10px;"></div>
     </div>
 
-    <!-- ATTENDANCE RECORD (PUBLIC SEARCH) VIEW -->
+    <!-- ATTENDANCE RECORD VIEW -->
     <div id="records-view" class="view-section">
         <div class="user-info-bar">
             <div><strong>Attendance Record Archive</strong></div>
@@ -639,7 +639,7 @@
 </div>
 
 <script>
-    const MQTT_BASE_TOPIC = "kcet/qr_attendance_multiclass_v41";
+    const MQTT_BASE_TOPIC = "kcet/qr_attendance_multiclass_v42";
     const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
 
     let attendanceRecords = [];
@@ -803,7 +803,7 @@
                 recordUserRole = 'admin';
             }
         } else if (recordAuthRole === 'teacher') {
-            if (authPass.endsWith(`@${authId}`) && authId.length > 0) {
+            if (authPass.length > 0 && authId.length > 0) {
                 authenticated = true;
                 recordUserRole = 'teacher';
             }
@@ -917,14 +917,14 @@
             const user = document.getElementById('username').value.trim().toUpperCase();
             const pass = document.getElementById('password').value.trim();
 
-            if (pass.endsWith(`@${user}`)) {
+            if (user.length > 0 && pass.length > 0) {
                 loggedInUser = user;
                 document.getElementById('teacher-display-name').innerText = loggedInName;
                 document.getElementById('teacher-display-id').innerText = user;
                 switchView('teacher-view');
                 renderRosterTable();
             } else {
-                showAlert(alertBox, 'USE FORMAT: [YEAR]@[ID]');
+                showAlert(alertBox, 'PLEASE ENTER VALID EMPLOYEE ID AND PASSWORD.');
             }
         }
     }
@@ -1348,7 +1348,6 @@
             return;
         }
 
-        // BLOCK STUDENTS FROM ACCESSING WILDCARD ALL REPORTS
         if (recordUserRole === 'student') {
             if (dept === 'ALL' || year === 'ALL' || sec === 'ALL' || period === 'ALL') {
                 showAlert(alertBox, '❌ STUDENTS ARE NOT ALLOWED TO ACCESS WILDCARD ALL REPORTS! ONLY TEACHERS & ADMINS CAN VIEW ALL INFORMATION.');
@@ -1374,7 +1373,6 @@
                 if (matchDept && matchYear && matchSec && matchDate && matchPeriod) {
                     const parsedData = JSON.parse(localStorage.getItem(k));
 
-                    // If student logged in, filter records to include only their entries
                     if (recordUserRole === 'student') {
                         parsedData.records = parsedData.records.filter(r => r.rollNo === recordUserRoll);
                         if (parsedData.records.length > 0) {
@@ -1393,7 +1391,6 @@
             return;
         }
 
-        // Sort records in ascending order: Year -> Department -> Section
         matchedRecords.sort((a, b) => {
             const yA = a.classDetails.year;
             const yB = b.classDetails.year;
@@ -1484,7 +1481,6 @@
         const rosterKeys = Object.keys(localStorage).filter(k => k.startsWith('roster_'));
         const trackKeys = Object.keys(localStorage).filter(k => k.startsWith('session_track_'));
         const recordKeys = Object.keys(localStorage).filter(k => k.startsWith('record_'));
-        const today = new Date().toISOString().split('T')[0];
 
         let completedHTML = '<h3 style="font-size: 14px; color: #4ade80; margin-bottom: 8px; border-bottom: 1px solid #16a34a; padding-bottom: 4px;">✅ ATTENDANCE TAKEN:</h3>';
         let missedHTML = '<h3 style="font-size: 14px; color: #ef4444; margin-top: 16px; margin-bottom: 8px; border-bottom: 1px solid #dc2626; padding-bottom: 4px;">❌ ATTENDANCE NOT TAKEN:</h3>';
@@ -1493,7 +1489,6 @@
         let hasTaken = false;
         let hasNotTaken = false;
 
-        // Render classes with active or archived attendance
         trackKeys.forEach(k => {
             const data = JSON.parse(localStorage.getItem(k));
             const identifier = `${data.year}_${data.department}_${data.section}`;
@@ -1526,7 +1521,6 @@
             }
         });
 
-        // Check registered classrooms that have not recorded attendance
         rosterKeys.forEach(k => {
             const parts = k.replace('roster_', '').split('_');
             const dept = parts[0];
