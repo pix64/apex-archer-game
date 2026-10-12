@@ -553,15 +553,22 @@
             <button type="button" class="logout-btn" onclick="setRole('student')">Back</button>
         </div>
 
-        <!-- AUTH GATE FOR RECORDS -->
+        <!-- AUTH GATE FOR RECORDS WITH SWITCHABLE ROLE SELECTOR -->
         <div id="records-auth-container">
             <div class="header">
                 <h2>Secure Archive Access</h2>
-                <p>Enter your credentials to view attendance</p>
+                <p>Select login type and enter credentials</p>
             </div>
+
+            <div class="role-selector" style="grid-template-columns: repeat(3, 1fr); margin-bottom: 14px;">
+                <button type="button" class="role-btn active" id="btn-rec-role-student" onclick="setRecordLoginRole('student')">Student</button>
+                <button type="button" class="role-btn" id="btn-rec-role-teacher" onclick="setRecordLoginRole('teacher')">Teacher</button>
+                <button type="button" class="role-btn" id="btn-rec-role-admin" onclick="setRecordLoginRole('admin')">Admin</button>
+            </div>
+
             <form onsubmit="handleRecordsAuth(event)">
                 <div class="form-group">
-                    <label>Roll Number / Teacher ID / Admin ID</label>
+                    <label id="rec-id-label">Roll Number</label>
                     <input type="text" id="record-auth-id" placeholder="Enter ID" required oninput="this.value = this.value.toUpperCase()">
                 </div>
                 <div class="form-group">
@@ -577,7 +584,7 @@
         <div id="records-content-container" style="display: none;">
             <div class="header">
                 <h2>Search Records</h2>
-                <p>Filter by Department, Class/Year, Section, Date & Period (Type ALL for wildcard)</p>
+                <p id="records-search-subtitle">Filter by Department, Class/Year, Section, Date & Period</p>
             </div>
 
             <div class="grid-2">
@@ -607,7 +614,7 @@
             <button type="button" class="submit-btn" onclick="searchAttendanceRecords()">Search Record</button>
 
             <div id="record-search-results" style="margin-top: 16px; display: none;">
-                <button type="button" class="download-btn" id="top-download-btn" onclick="downloadArchivedPDF()" style="margin-bottom: 14px; background: #2563eb;">Download Sorted Consolidated PDF Report</button>
+                <button type="button" class="download-btn" id="top-download-btn" onclick="downloadArchivedPDF()" style="margin-bottom: 14px; background: #2563eb; display: none;">Download Sorted Consolidated PDF Report</button>
                 <div id="record-results-container"></div>
             </div>
         </div>
@@ -623,7 +630,7 @@
 
         <div class="header">
             <h2>Session Tracking</h2>
-            <p>Active, Completed & Missing Attendance Sessions</p>
+            <p>Monitor Attendance Status Across All Classrooms</p>
         </div>
 
         <div id="track-sessions-list" style="margin-top: 10px; font-size: 12px;"></div>
@@ -632,13 +639,16 @@
 </div>
 
 <script>
-    const MQTT_BASE_TOPIC = "kcet/qr_attendance_multiclass_v40";
+    const MQTT_BASE_TOPIC = "kcet/qr_attendance_multiclass_v41";
     const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
 
     let attendanceRecords = [];
     let currentRole = 'student';
+    let recordAuthRole = 'student';
     let loggedInUser = '';
     let loggedInName = '';
+    let recordUserRole = ''; 
+    let recordUserRoll = '';
     let html5QrCode = null;
     let classDetails = {};
     let qrRefreshInterval = null;
@@ -746,6 +756,7 @@
             document.getElementById('records-content-container').style.display = 'none';
             document.getElementById('record-auth-id').value = '';
             document.getElementById('record-auth-pass').value = '';
+            setRecordLoginRole('student');
         } else if (role === 'track') {
             switchView('track-view');
             renderTrackDashboard();
@@ -765,27 +776,38 @@
         }
     }
 
+    function setRecordLoginRole(role) {
+        recordAuthRole = role;
+        ['student', 'teacher', 'admin'].forEach(r => {
+            const btn = document.getElementById(`btn-rec-role-${r}`);
+            if (btn) btn.classList.toggle('active', r === role);
+        });
+
+        const label = document.getElementById('rec-id-label');
+        if (role === 'student') label.innerText = 'ROLL NUMBER';
+        else if (role === 'teacher') label.innerText = 'EMPLOYEE ID';
+        else if (role === 'admin') label.innerText = 'ADMIN ID';
+    }
+
     function handleRecordsAuth(e) {
         e.preventDefault();
         const authId = document.getElementById('record-auth-id').value.trim().toUpperCase();
         const authPass = document.getElementById('record-auth-pass').value.trim();
         const alertBox = document.getElementById('records-auth-alert');
 
-        // Verify credentials against saved student rosters, teacher pattern, or admin check
         let authenticated = false;
 
-        // Check Admin
-        if (authPass === authId && authId.length > 0) {
-            authenticated = true;
-        }
-
-        // Check Teacher pattern ([YEAR]@[ID])
-        if (!authenticated && authPass.endsWith(`@${authId}`)) {
-            authenticated = true;
-        }
-
-        // Check Student rosters
-        if (!authenticated) {
+        if (recordAuthRole === 'admin') {
+            if (authPass === authId && authId.length > 0) {
+                authenticated = true;
+                recordUserRole = 'admin';
+            }
+        } else if (recordAuthRole === 'teacher') {
+            if (authPass.endsWith(`@${authId}`) && authId.length > 0) {
+                authenticated = true;
+                recordUserRole = 'teacher';
+            }
+        } else if (recordAuthRole === 'student') {
             const keys = Object.keys(localStorage).filter(k => k.startsWith('roster_'));
             for (let k of keys) {
                 const savedObj = JSON.parse(localStorage.getItem(k) || '{}');
@@ -793,6 +815,8 @@
                 const student = roster.find(s => s.rollNo.toUpperCase() === authId && s.password.trim() === authPass);
                 if (student) {
                     authenticated = true;
+                    recordUserRole = 'student';
+                    recordUserRoll = student.rollNo;
                     break;
                 }
             }
@@ -802,8 +826,15 @@
             alertBox.style.display = 'none';
             document.getElementById('records-auth-container').style.display = 'none';
             document.getElementById('records-content-container').style.display = 'block';
+
+            const subtitle = document.getElementById('records-search-subtitle');
+            if (recordUserRole === 'student') {
+                subtitle.innerText = `Logged in as Student (${recordUserRoll}). Wildcard ALL searches restricted to your Roll Number.`;
+            } else {
+                subtitle.innerText = `Logged in as ${recordUserRole.toUpperCase()}. Full access enabled.`;
+            }
         } else {
-            showAlert(alertBox, 'INVALID CREDENTIALS! PLEASE CHECK YOUR ID AND PASSWORD.');
+            showAlert(alertBox, 'INVALID CREDENTIALS! PLEASE CHECK YOUR ROLE, ID, AND PASSWORD.');
         }
     }
 
@@ -1256,7 +1287,7 @@
 
     function saveSessionTrackMeta(status, submitted = false) {
         const today = new Date().toISOString().split('T')[0];
-        const trackKey = `session_track_${loggedInUser}_${today}_P${classDetails.period}_${classDetails.department}_${classDetails.year}_${classDetails.section}`;
+        const trackKey = `session_track_${classDetails.year}_${classDetails.department}_${classDetails.section}_P${classDetails.period}_${today}`;
         const trackData = {
             teacherId: loggedInUser,
             teacherName: loggedInName,
@@ -1309,6 +1340,7 @@
         const alertBox = document.getElementById('record-alert');
         const resultsContainer = document.getElementById('record-results-container');
         const searchResultsDiv = document.getElementById('record-search-results');
+        const topDownloadBtn = document.getElementById('top-download-btn');
 
         if (!dept || !year || !sec || !date || !period) {
             showAlert(alertBox, 'PLEASE FILL IN ALL SEARCH FIELDS (USE ALL FOR WILDCARD).');
@@ -1316,11 +1348,19 @@
             return;
         }
 
+        // BLOCK STUDENTS FROM ACCESSING WILDCARD ALL REPORTS
+        if (recordUserRole === 'student') {
+            if (dept === 'ALL' || year === 'ALL' || sec === 'ALL' || period === 'ALL') {
+                showAlert(alertBox, '❌ STUDENTS ARE NOT ALLOWED TO ACCESS WILDCARD ALL REPORTS! ONLY TEACHERS & ADMINS CAN VIEW ALL INFORMATION.');
+                searchResultsDiv.style.display = 'none';
+                return;
+            }
+        }
+
         const allKeys = Object.keys(localStorage).filter(k => k.startsWith('record_'));
         let matchedRecords = [];
 
         allKeys.forEach(k => {
-            // record_[YEAR]_[DEPT]_[SEC]_[DATE]_[PERIOD]
             const parts = k.replace('record_', '').split('_');
             if (parts.length >= 5) {
                 const [rYear, rDept, rSec, rDate, rPeriod] = parts;
@@ -1332,7 +1372,17 @@
                 const matchPeriod = (period === 'ALL' || rPeriod === `P${period}` || rPeriod === period);
 
                 if (matchDept && matchYear && matchSec && matchDate && matchPeriod) {
-                    matchedRecords.push(JSON.parse(localStorage.getItem(k)));
+                    const parsedData = JSON.parse(localStorage.getItem(k));
+
+                    // If student logged in, filter records to include only their entries
+                    if (recordUserRole === 'student') {
+                        parsedData.records = parsedData.records.filter(r => r.rollNo === recordUserRoll);
+                        if (parsedData.records.length > 0) {
+                            matchedRecords.push(parsedData);
+                        }
+                    } else {
+                        matchedRecords.push(parsedData);
+                    }
                 }
             }
         });
@@ -1343,7 +1393,7 @@
             return;
         }
 
-        // Sort records in increasing order: Year -> Department -> Section
+        // Sort records in ascending order: Year -> Department -> Section
         matchedRecords.sort((a, b) => {
             const yA = a.classDetails.year;
             const yB = b.classDetails.year;
@@ -1359,16 +1409,22 @@
         alertBox.style.display = 'none';
         window.currentMatchedRecords = matchedRecords;
 
+        if (recordUserRole === 'teacher' || recordUserRole === 'admin') {
+            topDownloadBtn.style.display = 'block';
+        } else {
+            topDownloadBtn.style.display = 'none';
+        }
+
         let htmlHTML = '';
         matchedRecords.forEach((parsed) => {
             htmlHTML += `
                 <div style="background: #0f172a; padding: 12px; border-radius: 10px; margin-bottom: 14px; border: 1px solid #334155;">
-                    <h3 style="font-size: 13px; color: #38bdf8; margin-bottom: 4px;">CLASS: ${parsed.classDetails.year} YEAR - ${parsed.classDetails.department} - SEC ${parsed.classDetails.section} (${parsed.date} P${parsed.classDetails.period}) - ${parsed.records.length} PRESENT</h3>
+                    <h3 style="font-size: 13px; color: #38bdf8; margin-bottom: 4px;">CLASS: ${parsed.classDetails.year} YEAR - ${parsed.classDetails.department} - SEC ${parsed.classDetails.section} (${parsed.date} P${parsed.classDetails.period})</h3>
                     <p style="font-size: 11px; color: #94a3b8; margin-bottom: 8px;">SUBJECT: ${parsed.classDetails.subject} (${parsed.classDetails.subjectCode}) | TEACHER: ${parsed.submittedBy}</p>
                     <table class="attendance-table">
                         <thead><tr><th>ROLL NO</th><th>NAME</th><th>TIME</th><th>STATUS</th></tr></thead>
                         <tbody>
-                            ${parsed.records.length === 0 ? '<tr><td colspan="4" style="color: #64748b;">NO STUDENTS MARKED PRESENT.</td></tr>' : 
+                            ${parsed.records.length === 0 ? '<tr><td colspan="4" style="color: #64748b;">NO MATCHING RECORD FOUND.</td></tr>' : 
                               parsed.records.map(item => `
                                 <tr>
                                     <td><strong>${item.rollNo}</strong></td>
@@ -1427,64 +1483,75 @@
         const container = document.getElementById('track-sessions-list');
         const rosterKeys = Object.keys(localStorage).filter(k => k.startsWith('roster_'));
         const trackKeys = Object.keys(localStorage).filter(k => k.startsWith('session_track_'));
+        const recordKeys = Object.keys(localStorage).filter(k => k.startsWith('record_'));
+        const today = new Date().toISOString().split('T')[0];
 
-        let trackedMap = {};
+        let completedHTML = '<h3 style="font-size: 14px; color: #4ade80; margin-bottom: 8px; border-bottom: 1px solid #16a34a; padding-bottom: 4px;">✅ ATTENDANCE TAKEN:</h3>';
+        let missedHTML = '<h3 style="font-size: 14px; color: #ef4444; margin-top: 16px; margin-bottom: 8px; border-bottom: 1px solid #dc2626; padding-bottom: 4px;">❌ ATTENDANCE NOT TAKEN:</h3>';
+
+        let takenSet = new Set();
+        let hasTaken = false;
+        let hasNotTaken = false;
+
+        // Render classes with active or archived attendance
         trackKeys.forEach(k => {
             const data = JSON.parse(localStorage.getItem(k));
-            const key = `${data.year}_${data.department}_${data.section}_P${data.period}_${data.date}`;
-            trackedMap[key] = data;
+            const identifier = `${data.year}_${data.department}_${data.section}`;
+            takenSet.add(identifier);
+            hasTaken = true;
+
+            completedHTML += `
+                <div style="background: #0f172a; padding: 10px; border-radius: 8px; margin-bottom: 6px; border: 1px solid #16a34a;">
+                    <strong>${data.year} YEAR - ${data.department} (SEC ${data.section})</strong> - PERIOD ${data.period}<br>
+                    <span style="color: #94a3b8;">Subject: ${data.subject} (${data.subjectCode}) | Teacher: ${data.teacherName}</span><br>
+                    <span style="color: #4ade80;">Status: ${data.submitted ? 'Submitted & Archived' : 'Live / In Progress'} (${data.recordsCount} Present)</span>
+                </div>
+            `;
         });
 
-        let completedHTML = '<h3 style="font-size: 14px; color: #4ade80; margin-bottom: 8px;">✅ Attendance Taken / Completed Sessions:</h3>';
-        let missedHTML = '<h3 style="font-size: 14px; color: #ef4444; margin-top: 16px; margin-bottom: 8px;">❌ Attendance Not Taken / Missing Sessions:</h3>';
-
-        let hasCompleted = false;
-        let hasMissed = false;
-
-        trackKeys.forEach(k => {
+        recordKeys.forEach(k => {
             const data = JSON.parse(localStorage.getItem(k));
-            if (data.submitted || data.status === 'ENDED') {
-                hasCompleted = true;
+            const identifier = `${data.classDetails.year}_${data.classDetails.department}_${data.classDetails.section}`;
+            if (!takenSet.has(identifier)) {
+                takenSet.add(identifier);
+                hasTaken = true;
+
                 completedHTML += `
                     <div style="background: #0f172a; padding: 10px; border-radius: 8px; margin-bottom: 6px; border: 1px solid #16a34a;">
-                        <strong>${data.year} YEAR - ${data.department} (SEC ${data.section})</strong> - P${data.period}<br>
-                        <span style="color: #94a3b8;">Subject: ${data.subject} (${data.subjectCode}) | Teacher: ${data.teacherName}</span><br>
-                        <span style="color: #4ade80;">Status: Completed & Submitted (${data.recordsCount} Present)</span>
-                    </div>
-                `;
-            } else {
-                hasMissed = true;
-                missedHTML += `
-                    <div style="background: #0f172a; padding: 10px; border-radius: 8px; margin-bottom: 6px; border: 1px solid #ef4444;">
-                        <strong>${data.year} YEAR - ${data.department} (SEC ${data.section})</strong> - P${data.period}<br>
-                        <span style="color: #94a3b8;">Subject: ${data.subject} (${data.subjectCode}) | Teacher: ${data.teacherName}</span><br>
-                        <span style="color: #38bdf8;">Status: Running / Pending Submission</span>
+                        <strong>${data.classDetails.year} YEAR - ${data.classDetails.department} (SEC ${data.classDetails.section})</strong> - PERIOD ${data.classDetails.period}<br>
+                        <span style="color: #94a3b8;">Subject: ${data.classDetails.subject} (${data.classDetails.subjectCode}) | Teacher: ${data.submittedBy}</span><br>
+                        <span style="color: #4ade80;">Status: Submitted & Archived (${data.records.length} Present)</span>
                     </div>
                 `;
             }
         });
 
+        // Check registered classrooms that have not recorded attendance
         rosterKeys.forEach(k => {
             const parts = k.replace('roster_', '').split('_');
             const dept = parts[0];
             const year = parts[1];
             const sec = parts[2];
-            const today = new Date().toISOString().split('T')[0];
-            
-            // Check if any session for periods 1-8 was tracked for this class today
-            for (let p = 1; p <= 8; p++) {
-                const matchKey = `${year}_${dept}_${sec}_P${p}_${today}`;
-                const trackKeyMatch = Object.keys(localStorage).find(tk => tk.includes(`_P${p}_`) && tk.includes(dept) && tk.includes(year) && tk.includes(sec));
-                
-                if (!trackKeyMatch) {
-                    hasMissed = true;
-                    // Prevent duplicate entries if already added
-                }
+            const identifier = `${year}_${dept}_${sec}`;
+
+            if (!takenSet.has(identifier)) {
+                hasNotTaken = true;
+                missedHTML += `
+                    <div style="background: #0f172a; padding: 10px; border-radius: 8px; margin-bottom: 6px; border: 1px solid #ef4444;">
+                        <strong>${year} YEAR - ${dept} (SEC ${sec})</strong><br>
+                        <span style="color: #fca5a5;">Status: No attendance session recorded yet today</span>
+                    </div>
+                `;
             }
         });
 
-        if (!hasCompleted) completedHTML += '<p style="color: #64748b; margin-bottom: 10px;">No completed sessions found.</p>';
-        if (!hasMissed) missedHTML += '<p style="color: #64748b; margin-bottom: 10px;">All scheduled or active classes have attendance running/completed.</p>';
+        if (!hasTaken) {
+            completedHTML += '<p style="color: #64748b; margin-bottom: 10px; font-size: 12px;">No class attendance recorded yet today.</p>';
+        }
+
+        if (!hasNotTaken) {
+            missedHTML += '<p style="color: #64748b; margin-bottom: 10px; font-size: 12px;">All registered classrooms have taken attendance today.</p>';
+        }
 
         container.innerHTML = completedHTML + missedHTML;
     }
