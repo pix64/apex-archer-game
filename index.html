@@ -343,38 +343,37 @@
         </div>
 
         <div id="auth-form-container">
-            <form id="main-login-form" onsubmit="handleLogin(event); return false;">
-                <div id="student-class-fields">
-                    <div class="grid-2">
-                        <div class="form-group">
-                            <label>Department</label>
-                            <input type="text" id="login-dept" placeholder="e.g. CSE" required oninput="this.value = this.value.toUpperCase()">
-                        </div>
-                        <div class="form-group">
-                            <label>Class / Year</label>
-                            <input type="text" id="login-year" placeholder="e.g. III" required oninput="this.value = this.value.toUpperCase()">
-                        </div>
+            <div id="student-class-fields">
+                <div class="grid-2">
+                    <div class="form-group">
+                        <label>Department</label>
+                        <input type="text" id="login-dept" value="CSE" placeholder="e.g. CSE" required oninput="this.value = this.value.toUpperCase()">
                     </div>
                     <div class="form-group">
-                        <label>Section</label>
-                        <input type="text" id="login-sec" placeholder="e.g. A" required oninput="this.value = this.value.toUpperCase()">
+                        <label>Class / Year</label>
+                        <input type="text" id="login-year" value="III" placeholder="e.g. III" required oninput="this.value = this.value.toUpperCase()">
                     </div>
                 </div>
+                <div class="form-group">
+                    <label>Section</label>
+                    <input type="text" id="login-sec" value="A" placeholder="e.g. A" required oninput="this.value = this.value.toUpperCase()">
+                </div>
+            </div>
 
-                <div class="form-group" id="group-fullname" style="display: none;">
-                    <label>Full Name</label>
-                    <input type="text" id="user-fullname" placeholder="Enter Full Name" oninput="this.value = this.value.toUpperCase()">
-                </div>
-                <div class="form-group">
-                    <label id="id-label">Roll Number</label>
-                    <input type="text" id="username" placeholder="Enter Roll Number" required oninput="this.value = this.value.toUpperCase()">
-                </div>
-                <div class="form-group">
-                    <label>Password</label>
-                    <input type="password" id="password" placeholder="Enter Password" required>
-                </div>
-                <button type="submit" class="submit-btn" id="login-submit-btn">Login</button>
-            </form>
+            <div class="form-group" id="group-fullname" style="display: none;">
+                <label>Full Name</label>
+                <input type="text" id="user-fullname" placeholder="Enter Full Name" oninput="this.value = this.value.toUpperCase()">
+            </div>
+            <div class="form-group">
+                <label id="id-label">Roll Number</label>
+                <input type="text" id="username" placeholder="Enter ID / Roll Number" required oninput="this.value = this.value.toUpperCase()">
+            </div>
+            <div class="form-group">
+                <label>Password</label>
+                <input type="password" id="password" placeholder="Enter Password" required>
+            </div>
+            <button type="button" class="submit-btn" id="login-submit-btn" onclick="executePortalLogin()">Login</button>
+
             <div style="text-align: center; margin-top: 14px;">
                 <button type="button" class="logout-btn" onclick="switchToAdminLogin()" style="font-size: 13px;">Admin Portal Login &rarr;</button>
             </div>
@@ -635,7 +634,7 @@
 </div>
 
 <script>
-    const MQTT_BASE_TOPIC = "kcet/qr_attendance_multiclass_v44";
+    const MQTT_BASE_TOPIC = "kcet/qr_attendance_multiclass_v45";
     const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
 
     let attendanceRecords = [];
@@ -651,6 +650,27 @@
     let activeSessionTopic = '';
     let currentSessionSalt = '';
     let sessionStartTime = null;
+
+    // Seed default demo roster for cross-device/browser testing
+    function seedDefaultRosterIfMissing(dept, year, sec) {
+        const rosterKey = `roster_${dept}_${year}_${sec}`;
+        if (!localStorage.getItem(rosterKey)) {
+            const defaultRoster = [
+                { sNo: '1', name: 'JOHN DOE', rollNo: '22CSE01', password: 'PASS1' },
+                { sNo: '2', name: 'JANE SMITH', rollNo: '22CSE02', password: 'PASS2' },
+                { sNo: '3', name: 'ALEX JOHNSON', rollNo: '22CSE03', password: 'PASS3' }
+            ];
+            const classData = {
+                roster: defaultRoster,
+                storedFileName: 'DEFAULT_DEMO_ROSTER',
+                storedFileRaw: '1 = JOHN DOE = 22CSE01 = PASS1\n2 = JANE SMITH = 22CSE02 = PASS2\n3 = ALEX JOHNSON = 22CSE03 = PASS3'
+            };
+            localStorage.setItem(rosterKey, JSON.stringify(classData));
+        }
+    }
+
+    // Seed on startup
+    seedDefaultRosterIfMissing('CSE', 'III', 'A');
 
     client.on('connect', () => {
         const dot = document.getElementById('sync-dot');
@@ -870,8 +890,7 @@
         return roster;
     }
 
-    function handleLogin(e) {
-        if (e) e.preventDefault();
+    function executePortalLogin() {
         const alertBox = document.getElementById('login-alert');
 
         if (currentRole === 'student') {
@@ -882,11 +901,12 @@
             const pass = document.getElementById('password').value.trim();
 
             const rosterKey = `roster_${dept}_${year}_${sec}`;
+            seedDefaultRosterIfMissing(dept, year, sec);
             const savedDataJSON = localStorage.getItem(rosterKey);
 
             if (!savedDataJSON) {
                 showAlert(alertBox, `NO REGISTERED STUDENT ROSTER FOUND FOR ${dept} - ${year} YEAR - SECTION ${sec}. PLEASE CONTACT ADMIN.`);
-                return false;
+                return;
             }
 
             const savedObj = JSON.parse(savedDataJSON);
@@ -911,21 +931,22 @@
                 showAlert(alertBox, 'INVALID ROLL NUMBER, PASSWORD, OR CLASS DETAILS!');
             }
         } else if (currentRole === 'teacher') {
-            loggedInName = document.getElementById('user-fullname').value.trim().toUpperCase();
-            const user = document.getElementById('username').value.trim().toUpperCase();
-            const pass = document.getElementById('password').value.trim();
+            const nameInput = document.getElementById('user-fullname').value.trim().toUpperCase();
+            const userInput = document.getElementById('username').value.trim().toUpperCase();
+            const passInput = document.getElementById('password').value.trim();
 
-            if (user.length > 0 && pass.length > 0) {
-                loggedInUser = user;
-                document.getElementById('teacher-display-name').innerText = loggedInName;
-                document.getElementById('teacher-display-id').innerText = user;
-                switchView('teacher-view');
-                renderRosterTable();
-            } else {
-                showAlert(alertBox, 'PLEASE ENTER VALID EMPLOYEE ID AND PASSWORD.');
+            if (!nameInput || !userInput || !passInput) {
+                showAlert(alertBox, 'PLEASE FILL IN ALL FIELDS (FULL NAME, EMPLOYEE ID, PASSWORD).');
+                return;
             }
+
+            loggedInUser = userInput;
+            loggedInName = nameInput;
+            document.getElementById('teacher-display-name').innerText = loggedInName;
+            document.getElementById('teacher-display-id').innerText = loggedInUser;
+            switchView('teacher-view');
+            renderRosterTable();
         }
-        return false;
     }
 
     async function handleStudentFileUpload(e) {
