@@ -351,7 +351,7 @@
                     </div>
                     <div class="form-group">
                         <label>Class / Year</label>
-                        <input type="text" id="login-year" value="III" placeholder="e.g. III" required oninput="this.value = this.value.toUpperCase()">
+                        <input type="text" id="login-year" value="3" placeholder="e.g. 3" required oninput="this.value = this.value.toUpperCase()">
                     </div>
                 </div>
                 <div class="form-group">
@@ -450,13 +450,13 @@
 
         <div class="header">
             <h2>Anti-Proxy QR Broadcast</h2>
-            <p><span class="status-dot" id="sync-dot"></span><span id="sync-status">Connecting Live Sync...</span></p>
+            <p><span class="status-dot online" id="sync-dot"></span><span id="sync-status">Engine Online & Connected</span></p>
         </div>
 
         <form id="teacher-session-form" onsubmit="handleGenerateQR(event); return false;">
             <div class="grid-2">
                 <div class="form-group"><label>Department</label><input type="text" id="class-dept" placeholder="e.g. CSE" required oninput="this.value = this.value.toUpperCase()"></div>
-                <div class="form-group"><label>Class / Year</label><input type="text" id="class-year" placeholder="e.g. III" required oninput="this.value = this.value.toUpperCase()"></div>
+                <div class="form-group"><label>Class / Year</label><input type="text" id="class-year" placeholder="e.g. 3" required oninput="this.value = this.value.toUpperCase()"></div>
             </div>
             <div class="grid-2">
                 <div class="form-group"><label>Section</label><input type="text" id="class-section" placeholder="e.g. A" required oninput="this.value = this.value.toUpperCase()"></div>
@@ -513,8 +513,8 @@
                         <input type="text" id="admin-dept" placeholder="e.g. CSE" required oninput="this.value = this.value.toUpperCase()">
                     </div>
                     <div class="form-group">
-                        <label>Class / Year</label>
-                        <input type="text" id="admin-year" placeholder="e.g. III" required oninput="this.value = this.value.toUpperCase()">
+                        <label>Class / Year (Numeric)</label>
+                        <input type="text" id="admin-year" placeholder="e.g. 3" required oninput="this.value = this.value.toUpperCase()">
                     </div>
                 </div>
                 <div class="form-group">
@@ -589,7 +589,7 @@
                 </div>
                 <div class="form-group">
                     <label>Class / Year</label>
-                    <input type="text" id="search-year" placeholder="e.g. III or ALL" oninput="this.value = this.value.toUpperCase()">
+                    <input type="text" id="search-year" placeholder="e.g. 3 or ALL" oninput="this.value = this.value.toUpperCase()">
                 </div>
             </div>
             <div class="grid-2">
@@ -634,7 +634,7 @@
 </div>
 
 <script>
-    const MQTT_BASE_TOPIC = "kcet/qr_attendance_multiclass_v46";
+    const MQTT_BASE_TOPIC = "kcet/qr_attendance_multiclass_v47";
     const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
 
     let attendanceRecords = [];
@@ -681,7 +681,7 @@
         }
     }
 
-    seedDefaultRosterIfMissing('CSE', 'III', 'A');
+    seedDefaultRosterIfMissing('CSE', '3', 'A');
 
     client.on('connect', () => {
         const dot = document.getElementById('sync-dot');
@@ -690,6 +690,7 @@
         if (status) status.innerText = 'Engine Online & Connected';
         client.subscribe(`${MQTT_BASE_TOPIC}/roster/#`);
         client.subscribe(`${MQTT_BASE_TOPIC}/sync_request`);
+        client.subscribe(`${MQTT_BASE_TOPIC}/sync_response`);
     });
 
     client.on('message', (topic, message) => {
@@ -720,12 +721,12 @@
         }
     });
 
-    // Request broadcast sync on startup for multi-device support
+    // Request broadcast sync on startup for multi-device cross-access support
     setTimeout(() => {
         if (client.connected) {
             client.publish(`${MQTT_BASE_TOPIC}/sync_request`, 'PING', { qos: 1 });
         }
-    }, 1500);
+    }, 1000);
 
     window.addEventListener('storage', (event) => {
         if (event.key && event.key.startsWith('sync_attendance_') && event.newValue) {
@@ -852,7 +853,7 @@
                 recordUserRole = 'admin';
             }
         } else if (recordAuthRole === 'teacher') {
-            if (authPass === `${new Date().getFullYear()}@${authId}` || authPass.includes(`@${authId}`)) {
+            if (authPass.includes(`@${authId}`)) {
                 authenticated = true;
                 recordUserRole = 'teacher';
             }
