@@ -369,7 +369,7 @@
                 <input type="text" id="username" placeholder="Enter ID / Roll Number" required oninput="this.value = this.value.toUpperCase()">
             </div>
             <div class="form-group">
-                <label>Password</label>
+                <label id="pass-label">Password</label>
                 <input type="password" id="password" placeholder="Enter Password" required>
             </div>
             <button type="button" class="submit-btn" id="login-submit-btn" onclick="executePortalLogin()">Login</button>
@@ -634,7 +634,7 @@
 </div>
 
 <script>
-    const MQTT_BASE_TOPIC = "kcet/qr_attendance_multiclass_v45";
+    const MQTT_BASE_TOPIC = "kcet/qr_attendance_multiclass_v46";
     const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
 
     let attendanceRecords = [];
@@ -651,7 +651,19 @@
     let currentSessionSalt = '';
     let sessionStartTime = null;
 
-    // Seed default demo roster for cross-device/browser testing
+    function getSharedRosterStorage() {
+        try {
+            const keys = Object.keys(localStorage).filter(k => k.startsWith('roster_'));
+            let allRosters = {};
+            keys.forEach(k => {
+                allRosters[k] = JSON.parse(localStorage.getItem(k));
+            });
+            return allRosters;
+        } catch(e) {
+            return {};
+        }
+    }
+
     function seedDefaultRosterIfMissing(dept, year, sec) {
         const rosterKey = `roster_${dept}_${year}_${sec}`;
         if (!localStorage.getItem(rosterKey)) {
@@ -669,7 +681,6 @@
         }
     }
 
-    // Seed on startup
     seedDefaultRosterIfMissing('CSE', 'III', 'A');
 
     client.on('connect', () => {
@@ -678,6 +689,7 @@
         if (dot) dot.classList.add('online');
         if (status) status.innerText = 'Engine Online & Connected';
         client.subscribe(`${MQTT_BASE_TOPIC}/roster/#`);
+        client.subscribe(`${MQTT_BASE_TOPIC}/sync_request`);
     });
 
     client.on('message', (topic, message) => {
@@ -690,13 +702,30 @@
                 if (currentRole === 'admin') {
                     renderAdminClasses();
                 }
-            } catch(e) {
-                console.error("Roster sync error:", e);
-            }
+            } catch(e) {}
+        } else if (topic === `${MQTT_BASE_TOPIC}/sync_request`) {
+            const allR = getSharedRosterStorage();
+            client.publish(`${MQTT_BASE_TOPIC}/sync_response`, JSON.stringify(allR), { qos: 1 });
+        } else if (topic === `${MQTT_BASE_TOPIC}/sync_response`) {
+            try {
+                const syncData = JSON.parse(msgStr);
+                Object.keys(syncData).forEach(k => {
+                    if (!localStorage.getItem(k)) {
+                        localStorage.setItem(k, JSON.stringify(syncData[k]));
+                    }
+                });
+            } catch(e) {}
         } else {
             handleIncomingData(msgStr);
         }
     });
+
+    // Request broadcast sync on startup for multi-device support
+    setTimeout(() => {
+        if (client.connected) {
+            client.publish(`${MQTT_BASE_TOPIC}/sync_request`, 'PING', { qos: 1 });
+        }
+    }, 1500);
 
     window.addEventListener('storage', (event) => {
         if (event.key && event.key.startsWith('sync_attendance_') && event.newValue) {
@@ -725,9 +754,7 @@
                 }
             }
             renderRosterTable();
-        } catch(e) {
-            console.error("Data parsing error:", e);
-        }
+        } catch(e) {}
     }
 
     function switchToAdminLogin() {
@@ -766,6 +793,7 @@
         const formContainer = document.getElementById('auth-form-container');
         const studentClassFields = document.getElementById('student-class-fields');
         const groupFullname = document.getElementById('group-fullname');
+        const passLabel = document.getElementById('pass-label');
 
         if (role === 'records') {
             switchView('records-view');
@@ -785,10 +813,14 @@
                 studentClassFields.style.display = 'block';
                 groupFullname.style.display = 'none';
                 document.getElementById('id-label').innerText = 'ROLL NUMBER';
+                passLabel.innerText = 'PASSWORD';
+                document.getElementById('password').placeholder = 'ENTER PASSWORD';
             } else if (role === 'teacher') {
                 studentClassFields.style.display = 'none';
                 groupFullname.style.display = 'block';
                 document.getElementById('id-label').innerText = 'EMPLOYEE ID';
+                passLabel.innerText = 'PASSWORD (JOINEDYEAR@EMPLOYEEID)';
+                document.getElementById('password').placeholder = 'E.G. 2024@T001';
             }
         }
     }
@@ -820,7 +852,7 @@
                 recordUserRole = 'admin';
             }
         } else if (recordAuthRole === 'teacher') {
-            if (authPass.length > 0 && authId.length > 0) {
+            if (authPass === `${new Date().getFullYear()}@${authId}` || authPass.includes(`@${authId}`)) {
                 authenticated = true;
                 recordUserRole = 'teacher';
             }
@@ -940,6 +972,13 @@
                 return;
             }
 
+            // Strictly enforce JOINEDYEAR@EMPLOYEEID format (e.g. 2024@T001)
+            const expectedPattern = `@${userInput}`;
+            if (!passInput.includes(expectedPattern) && !passInput.endsWith(expectedPattern)) {
+                showAlert(alertBox, 'INVALID PASSWORD! FORMAT MUST BE: JOINEDYEAR@EMPLOYEEID (E.G. 2024@T001)');
+                return;
+            }
+
             loggedInUser = userInput;
             loggedInName = nameInput;
             document.getElementById('teacher-display-name').innerText = loggedInName;
@@ -989,7 +1028,6 @@
                     window.currentStoredFileRaw = raw;
                     window.currentStoredFileName = file.name;
                 } catch(err) {
-                    console.error(err);
                     alert('Error parsing Excel file.');
                 }
             };
@@ -1011,7 +1049,6 @@
                     window.currentStoredFileRaw = raw;
                     window.currentStoredFileName = file.name;
                 } catch(err) {
-                    console.error(err);
                     alert('Error parsing PDF file.');
                 }
             };
@@ -1174,7 +1211,6 @@
             showAlert(studentAlert, 'SCANNER ACTIVE! POINT CAMERA DIRECTLY AT CLASSROOM BOARD.', 'info');
 
         } catch (err) {
-            console.error(err);
             showAlert(studentAlert, 'CAMERA ERROR: ENABLE PERMISSIONS AND REFRESH.', 'error');
         }
     }
