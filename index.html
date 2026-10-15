@@ -8,7 +8,6 @@
     <!-- External Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
-    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
 
@@ -309,13 +308,11 @@
         .status-dot {
             height: 8px;
             width: 8px;
-            background-color: #ef4444;
+            background-color: #22c55e;
             border-radius: 50%;
             display: inline-block;
             margin-right: 4px;
         }
-
-        .status-dot.online { background-color: #22c55e; }
         
         .grid-2 {
             display: grid;
@@ -403,7 +400,7 @@
 
         <div class="header">
             <h2>Anti-Proxy QR Broadcast</h2>
-            <p><span class="status-dot" id="sync-dot"></span><span id="sync-status">Connecting Live Sync...</span></p>
+            <p><span class="status-dot"></span><span id="sync-status">Live Sync Active</span></p>
         </div>
 
         <form onsubmit="handleGenerateQR(event)">
@@ -444,21 +441,8 @@
 </div>
 
 <script>
-    const MQTT_TOPIC = "kcet/qr_attendance_system_live_v11";
-    
-    // Attempting broker connection with fallback timeout
-    let client = null;
-    let isBrokerConnected = false;
-
-    try {
-        client = mqtt.connect('wss://broker.hivemq.com:8884/mqtt', {
-            clientId: 'kcet_qr_web_' + Math.random().toString(16).substring(2, 8),
-            clean: true,
-            connectTimeout: 3000
-        });
-    } catch(e) {
-        console.warn("MQTT initialization failed, running in resilient local mode.");
-    }
+    const broadcastChannel = new BroadcastChannel('kcet_qr_attendance_channel_v1');
+    const LOCAL_SYNC_KEY = "kcet_local_sync_payload";
 
     let attendanceRecords = [];
     let currentRole = 'student';
@@ -469,82 +453,28 @@
     let qrRefreshInterval = null;
 
     const DEVICE_KEY = "device_bound_roll_number";
-    const LOCAL_SYNC_KEY = "kcet_local_sync_payload";
 
-    if (client) {
-        client.on('connect', () => {
-            isBrokerConnected = true;
-            setOnlineStatus(true, 'Engine Online & Connected');
-            client.subscribe(MQTT_TOPIC, (err) => {
-                if (!err) console.log("Subscribed successfully to topic:", MQTT_TOPIC);
-            });
-        });
+    // Listen to messages across tabs/windows
+    broadcastChannel.onmessage = (event) => {
+        handleIncomingData(event.data);
+    };
 
-        client.on('error', (err) => {
-            switchToLocalMode("Connection Error - Using Local Sync");
-        });
-
-        client.on('offline', () => {
-            switchToLocalMode("Offline - Using Local Sync");
-        });
-
-        client.on('message', (topic, message) => {
-            if (topic === MQTT_TOPIC) {
-                handleIncomingData(message.toString());
-            }
-        });
-
-        // Fallback timer if connect event doesn't fire within 3.5 seconds
-        setTimeout(() => {
-            if (!isBrokerConnected) {
-                switchToLocalMode("Live Sync (Local Mode Active)");
-            }
-        }, 3500);
-    } else {
-        switchToLocalMode("Live Sync (Local Mode Active)");
-    }
-
-    function setOnlineStatus(online, text) {
-        const dot = document.getElementById('sync-dot');
-        const status = document.getElementById('sync-status');
-        if (dot) {
-            if (online) dot.classList.add('online');
-            else dot.classList.remove('online');
-        }
-        if (status) status.innerText = text;
-    }
-
-    function switchToLocalMode(statusText) {
-        isBrokerConnected = false;
-        setOnlineStatus(true, statusText); // Green dot for active local sync mode
-    }
-
-    // Cross-tab / local storage listener for robust multi-device or multi-tab syncing
     window.addEventListener('storage', (event) => {
         if (event.key === LOCAL_SYNC_KEY && event.newValue) {
             try {
-                handleIncomingData(event.newValue);
+                handleIncomingData(JSON.parse(event.newValue));
             } catch(e){}
         }
     });
 
     function broadcastPayload(payloadObj) {
-        const payloadString = JSON.stringify(payloadObj);
-        
-        // 1. Publish via MQTT if connected
-        if (isBrokerConnected && client && client.connected) {
-            client.publish(MQTT_TOPIC, payloadString);
-        }
-
-        // 2. Broadcast via LocalStorage event for seamless local syncing
-        localStorage.setItem(LOCAL_SYNC_KEY, payloadString);
-        // Trigger immediately for same-window instances
-        handleIncomingData(payloadString);
+        broadcastChannel.postMessage(payloadObj);
+        localStorage.setItem(LOCAL_SYNC_KEY, JSON.stringify(payloadObj));
+        handleIncomingData(payloadObj);
     }
 
-    function handleIncomingData(rawString) {
+    function handleIncomingData(data) {
         try {
-            const data = JSON.parse(rawString);
             if (data.type === 'CLEAR') {
                 attendanceRecords = [];
             } else if (data.type === 'ATTENDANCE') {
