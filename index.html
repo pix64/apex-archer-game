@@ -8,6 +8,7 @@
     <!-- External Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
 
@@ -123,6 +124,22 @@
             border-radius: 10px;
             cursor: pointer;
             margin-top: 6px;
+            pointer-events: auto;
+            position: relative;
+            z-index: 20;
+        }
+
+        .test-btn {
+            background: #d97706;
+            color: white;
+            border: none;
+            padding: 10px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+            width: 100%;
+            margin-top: 10px;
             pointer-events: auto;
             position: relative;
             z-index: 20;
@@ -308,11 +325,13 @@
         .status-dot {
             height: 8px;
             width: 8px;
-            background-color: #22c55e;
+            background-color: #ef4444;
             border-radius: 50%;
             display: inline-block;
             margin-right: 4px;
         }
+
+        .status-dot.online { background-color: #22c55e; }
         
         .grid-2 {
             display: grid;
@@ -371,6 +390,7 @@
         </div>
 
         <button type="button" class="submit-btn" id="scan-start-btn" onclick="startScanner()">Open Live Camera</button>
+        <button type="button" class="test-btn" onclick="simulateSuccessfulScan()">⚡ Simulate Successful Scan (Test)</button>
         
         <div class="scanner-container" id="scanner-wrapper">
             <div id="reader"></div>
@@ -400,7 +420,7 @@
 
         <div class="header">
             <h2>Anti-Proxy QR Broadcast</h2>
-            <p><span class="status-dot"></span><span id="sync-status">Live Sync Active</span></p>
+            <p><span class="status-dot" id="sync-dot"></span><span id="sync-status">Connecting Live Sync...</span></p>
         </div>
 
         <form onsubmit="handleGenerateQR(event)">
@@ -441,8 +461,14 @@
 </div>
 
 <script>
-    const broadcastChannel = new BroadcastChannel('kcet_qr_attendance_channel_v1');
-    const LOCAL_SYNC_KEY = "kcet_local_sync_payload";
+    const MQTT_TOPIC = "kcet/qr_attendance_system_live_v11";
+    
+    // Stable MQTT connection over secure WebSockets
+    const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt', {
+        clientId: 'kcet_qr_web_' + Math.random().toString(16).substring(2, 8),
+        clean: true,
+        connectTimeout: 5000
+    });
 
     let attendanceRecords = [];
     let currentRole = 'student';
@@ -454,47 +480,54 @@
 
     const DEVICE_KEY = "device_bound_roll_number";
 
-    // Listen to messages across tabs/windows
-    broadcastChannel.onmessage = (event) => {
-        handleIncomingData(event.data);
-    };
-
-    window.addEventListener('storage', (event) => {
-        if (event.key === LOCAL_SYNC_KEY && event.newValue) {
-            try {
-                handleIncomingData(JSON.parse(event.newValue));
-            } catch(e){}
-        }
+    client.on('connect', () => {
+        const dot = document.getElementById('sync-dot');
+        const status = document.getElementById('sync-status');
+        if (dot) dot.classList.add('online');
+        if (status) status.innerText = 'Engine Online & Connected';
+        client.subscribe(MQTT_TOPIC, (err) => {
+            if (!err) console.log("Subscribed successfully to topic:", MQTT_TOPIC);
+        });
     });
 
-    function broadcastPayload(payloadObj) {
-        broadcastChannel.postMessage(payloadObj);
-        localStorage.setItem(LOCAL_SYNC_KEY, JSON.stringify(payloadObj));
-        handleIncomingData(payloadObj);
-    }
+    client.on('error', (err) => {
+        console.error("MQTT Connection Error:", err);
+        const status = document.getElementById('sync-status');
+        if (status) status.innerText = 'Connection Error - Check Network';
+    });
 
-    function handleIncomingData(data) {
-        try {
-            if (data.type === 'CLEAR') {
-                attendanceRecords = [];
-            } else if (data.type === 'ATTENDANCE') {
-                const existingIndex = attendanceRecords.findIndex(r => r.rollNo === data.rollNo);
-                if (existingIndex === -1) {
-                    attendanceRecords.push({
-                        rollNo: data.rollNo,
-                        name: data.name,
-                        timestamp: data.timestamp,
-                        status: data.status
-                    });
-                } else {
-                    attendanceRecords[existingIndex].timestamp = data.timestamp;
+    client.on('offline', () => {
+        const dot = document.getElementById('sync-dot');
+        const status = document.getElementById('sync-status');
+        if (dot) dot.classList.remove('online');
+        if (status) status.innerText = 'Offline - Reconnecting...';
+    });
+
+    client.on('message', (topic, message) => {
+        if (topic === MQTT_TOPIC) {
+            try {
+                const data = JSON.parse(message.toString());
+                if (data.type === 'CLEAR') {
+                    attendanceRecords = [];
+                } else if (data.type === 'ATTENDANCE') {
+                    const existingIndex = attendanceRecords.findIndex(r => r.rollNo === data.rollNo);
+                    if (existingIndex === -1) {
+                        attendanceRecords.push({
+                            rollNo: data.rollNo,
+                            name: data.name,
+                            timestamp: data.timestamp,
+                            status: data.status
+                        });
+                    } else {
+                        attendanceRecords[existingIndex].timestamp = data.timestamp;
+                    }
                 }
+                renderRosterTable();
+            } catch(e) {
+                console.error("MQTT message parsing error:", e);
             }
-            renderRosterTable();
-        } catch(e) {
-            console.error("Data parsing error:", e);
         }
-    }
+    });
 
     function setRole(role) {
         currentRole = role;
@@ -582,6 +615,30 @@
         }
     }
 
+    function simulateSuccessfulScan() {
+        const studentAlert = document.getElementById('student-alert');
+        const markTime = new Date().toLocaleTimeString();
+
+        const payload = {
+            type: 'ATTENDANCE',
+            rollNo: loggedInUser,
+            name: loggedInName,
+            status: 'PRESENT',
+            timestamp: markTime
+        };
+
+        client.publish(MQTT_TOPIC, JSON.stringify(payload), {}, (err) => {
+            if (!err) {
+                if (!attendanceRecords.some(r => r.rollNo === loggedInUser)) {
+                    attendanceRecords.push(payload);
+                    renderRosterTable();
+                }
+            }
+        });
+
+        showAlert(studentAlert, '✅ Attendance Verified Successfully (Simulated)!', 'success');
+    }
+
     function onScanSuccess(decodedText) {
         const studentAlert = document.getElementById('student-alert');
         
@@ -593,7 +650,7 @@
                 const currentTimestamp = Date.now();
                 const latency = currentTimestamp - qrTimestamp;
 
-                if (latency > 1500) {
+                if (latency > 3000) {
                     showAlert(studentAlert, '❌ EXPIRED QR! Photos or remote video calls are rejected.', 'error');
                     return;
                 }
@@ -608,7 +665,14 @@
                     timestamp: markTime
                 };
 
-                broadcastPayload(payload);
+                client.publish(MQTT_TOPIC, JSON.stringify(payload), {}, (err) => {
+                    if (!err) {
+                        if (!attendanceRecords.some(r => r.rollNo === loggedInUser)) {
+                            attendanceRecords.push(payload);
+                            renderRosterTable();
+                        }
+                    }
+                });
                 
                 showAlert(studentAlert, '✅ Attendance Verified Successfully!', 'success');
 
@@ -690,7 +754,7 @@
 
     function clearRoster() {
         if (confirm("Clear attendance list for this session?")) {
-            broadcastPayload({ type: 'CLEAR' });
+            client.publish(MQTT_TOPIC, JSON.stringify({ type: 'CLEAR' }));
             attendanceRecords = [];
             renderRosterTable();
         }
