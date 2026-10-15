@@ -39,8 +39,6 @@
             box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5);
             padding: 20px;
             border: 1px solid #334155;
-            position: relative;
-            z-index: 10;
         }
 
         .header {
@@ -65,8 +63,6 @@
             padding: 4px;
             border-radius: 12px;
             margin-bottom: 20px;
-            position: relative;
-            z-index: 20;
         }
 
         .role-btn {
@@ -79,7 +75,6 @@
             font-weight: 600;
             font-size: 14px;
             cursor: pointer;
-            pointer-events: auto;
         }
 
         .role-btn.active {
@@ -89,8 +84,6 @@
 
         .form-group {
             margin-bottom: 12px;
-            position: relative;
-            z-index: 20;
         }
 
         .form-group label {
@@ -110,7 +103,6 @@
             outline: none;
             background: #0f172a;
             color: #fff;
-            pointer-events: auto;
         }
 
         .submit-btn {
@@ -124,25 +116,6 @@
             border-radius: 10px;
             cursor: pointer;
             margin-top: 6px;
-            pointer-events: auto;
-            position: relative;
-            z-index: 20;
-        }
-
-        .test-btn {
-            background: #d97706;
-            color: white;
-            border: none;
-            padding: 10px;
-            border-radius: 8px;
-            font-size: 13px;
-            font-weight: 700;
-            cursor: pointer;
-            width: 100%;
-            margin-top: 10px;
-            pointer-events: auto;
-            position: relative;
-            z-index: 20;
         }
 
         .download-btn {
@@ -156,9 +129,6 @@
             cursor: pointer;
             width: 100%;
             margin-top: 10px;
-            pointer-events: auto;
-            position: relative;
-            z-index: 20;
         }
 
         .view-section {
@@ -193,8 +163,6 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            position: relative;
-            z-index: 20;
         }
 
         .logout-btn {
@@ -203,7 +171,6 @@
             font-weight: 700;
             border: none;
             background: transparent;
-            pointer-events: auto;
         }
 
         .scanner-container {
@@ -221,8 +188,6 @@
         #reader {
             width: 100%;
             height: 100%;
-            position: relative;
-            z-index: 1;
         }
 
         #reader video {
@@ -241,7 +206,6 @@
             display: flex;
             justify-content: center;
             align-items: center;
-            z-index: 5;
         }
 
         .scanner-box {
@@ -251,7 +215,6 @@
             border-radius: 16px;
             position: relative;
             box-shadow: 0 0 0 4000px rgba(0, 0, 0, 0.55);
-            pointer-events: none;
         }
 
         .scanner-corner {
@@ -275,7 +238,6 @@
             position: absolute;
             top: 0;
             animation: scanAnimation 2s infinite ease-in-out;
-            pointer-events: none;
         }
 
         @keyframes scanAnimation {
@@ -289,8 +251,6 @@
             border-collapse: collapse;
             margin-top: 12px;
             font-size: 11px;
-            position: relative;
-            z-index: 20;
         }
 
         .attendance-table th, .attendance-table td {
@@ -317,19 +277,18 @@
             cursor: pointer;
             float: right;
             margin-top: 10px;
-            pointer-events: auto;
-            position: relative;
-            z-index: 20;
         }
 
         .status-dot {
             height: 8px;
             width: 8px;
-            background-color: #22c55e;
+            background-color: #ef4444;
             border-radius: 50%;
             display: inline-block;
             margin-right: 4px;
         }
+
+        .status-dot.online { background-color: #22c55e; }
         
         .grid-2 {
             display: grid;
@@ -388,7 +347,6 @@
         </div>
 
         <button type="button" class="submit-btn" id="scan-start-btn" onclick="startScanner()">Open Live Camera</button>
-        <button type="button" class="test-btn" onclick="recordAttendanceDirectly()">⚡ Simulate Successful Scan (Test)</button>
         
         <div class="scanner-container" id="scanner-wrapper">
             <div id="reader"></div>
@@ -418,7 +376,7 @@
 
         <div class="header">
             <h2>Anti-Proxy QR Broadcast</h2>
-            <p><span class="status-dot"></span><span id="sync-status">Live Sync Active</span></p>
+            <p><span class="status-dot" id="sync-dot"></span><span id="sync-status">Connecting Live Sync...</span></p>
         </div>
 
         <form onsubmit="handleGenerateQR(event)">
@@ -437,7 +395,7 @@
             <button type="submit" class="submit-btn" style="background: #16a34a;">Start Live Session</button>
         </form>
 
-        <div id="qr-output" style="display: none; text-align: center; margin-top: 16px; position: relative; z-index: 20;">
+        <div id="qr-output" style="display: none; text-align: center; margin-top: 16px;">
             <div id="qr-code-container" style="display: flex; justify-content: center; background: #fff; padding: 12px; border-radius: 12px; margin: 0 auto; width: fit-content;"></div>
 
             <div style="overflow: hidden; margin-top: 16px; margin-bottom: 8px;">
@@ -459,9 +417,10 @@
 </div>
 
 <script>
-    const STORAGE_KEY = "kcet_shared_attendance_roster";
+    const MQTT_TOPIC = "kcet/qr_attendance_system_live_v11";
+    const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
 
-    // Global shared store across views
+    let attendanceRecords = [];
     let currentRole = 'student';
     let loggedInUser = '';
     let loggedInName = '';
@@ -471,26 +430,43 @@
 
     const DEVICE_KEY = "device_bound_roll_number";
 
-    // Helper to get records from global storage
-    function getRecords() {
-        try {
-            const data = localStorage.getItem(STORAGE_KEY);
-            return data ? JSON.parse(data) : [];
-        } catch(e) {
-            return [];
-        }
-    }
+    client.on('connect', () => {
+        const dot = document.getElementById('sync-dot');
+        const status = document.getElementById('sync-status');
+        if (dot) dot.classList.add('online');
+        if (status) status.innerText = 'Engine Online & Connected';
+        client.subscribe(MQTT_TOPIC, (err) => {
+            if (!err) {
+                console.log("Subscribed successfully to topic:", MQTT_TOPIC);
+            }
+        });
+    });
 
-    // Helper to save records to global storage & trigger immediate UI refresh
-    function saveRecords(records) {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
-        renderRosterTable();
-    }
-
-    // Listen to storage events for cross-tab or multi-device updates
-    window.addEventListener('storage', (event) => {
-        if (event.key === STORAGE_KEY) {
-            renderRosterTable();
+    client.on('message', (topic, message) => {
+        if (topic === MQTT_TOPIC) {
+            try {
+                const data = JSON.parse(message.toString());
+                if (data.type === 'CLEAR') {
+                    attendanceRecords = [];
+                } else if (data.type === 'ATTENDANCE') {
+                    // Prevent duplicate entries for the same student roll number
+                    const existingIndex = attendanceRecords.findIndex(r => r.rollNo === data.rollNo);
+                    if (existingIndex === -1) {
+                        attendanceRecords.push({
+                            rollNo: data.rollNo,
+                            name: data.name,
+                            timestamp: data.timestamp,
+                            status: data.status
+                        });
+                    } else {
+                        // Update existing entry if needed
+                        attendanceRecords[existingIndex].timestamp = data.timestamp;
+                    }
+                }
+                renderRosterTable();
+            } catch(e) {
+                console.error("MQTT message parsing error:", e);
+            }
         }
     });
 
@@ -580,30 +556,6 @@
         }
     }
 
-    function recordAttendanceDirectly() {
-        const studentAlert = document.getElementById('student-alert');
-        const markTime = new Date().toLocaleTimeString();
-
-        const records = getRecords();
-        const existingIndex = records.findIndex(r => r.rollNo === loggedInUser);
-
-        const newEntry = {
-            rollNo: loggedInUser,
-            name: loggedInName,
-            timestamp: markTime,
-            status: 'PRESENT'
-        };
-
-        if (existingIndex === -1) {
-            records.push(newEntry);
-        } else {
-            records[existingIndex].timestamp = markTime;
-        }
-
-        saveRecords(records);
-        showAlert(studentAlert, '✅ Attendance Verified & Added to Roster!', 'success');
-    }
-
     function onScanSuccess(decodedText) {
         const studentAlert = document.getElementById('student-alert');
         
@@ -615,12 +567,33 @@
                 const currentTimestamp = Date.now();
                 const latency = currentTimestamp - qrTimestamp;
 
-                if (latency > 10000) {
+                if (latency > 1200) {
                     showAlert(studentAlert, '❌ EXPIRED QR! Photos or remote video calls are rejected.', 'error');
                     return;
                 }
 
-                recordAttendanceDirectly();
+                const markTime = new Date().toLocaleTimeString();
+
+                const payload = {
+                    type: 'ATTENDANCE',
+                    rollNo: loggedInUser,
+                    name: loggedInName,
+                    status: 'PRESENT',
+                    timestamp: markTime
+                };
+
+                // Publish to MQTT broker
+                client.publish(MQTT_TOPIC, JSON.stringify(payload), {}, (err) => {
+                    if (!err) {
+                        // Also update teacher roster immediately locally if testing on same machine/browser instance
+                        if (!attendanceRecords.some(r => r.rollNo === loggedInUser)) {
+                            attendanceRecords.push(payload);
+                            renderRosterTable();
+                        }
+                    }
+                });
+                
+                showAlert(studentAlert, '✅ Attendance Verified Successfully!', 'success');
 
                 if (html5QrCode) {
                     html5QrCode.stop().then(() => {
@@ -671,14 +644,17 @@
         });
     }
 
+    function getSortedRecords() {
+        return [...attendanceRecords].sort((a, b) => {
+            return a.rollNo.localeCompare(b.rollNo, undefined, { numeric: true, sensitivity: 'base' });
+        });
+    }
+
     function renderRosterTable() {
         const rosterBody = document.getElementById('attendance-roster-body');
         if (!rosterBody) return;
 
-        const records = getRecords();
-        const sorted = [...records].sort((a, b) => {
-            return a.rollNo.localeCompare(b.rollNo, undefined, { numeric: true, sensitivity: 'base' });
-        });
+        const sorted = getSortedRecords();
 
         if (sorted.length === 0) {
             rosterBody.innerHTML = '<tr><td colspan="4" style="color: #64748b;">Waiting for live scans...</td></tr>';
@@ -697,7 +673,8 @@
 
     function clearRoster() {
         if (confirm("Clear attendance list for this session?")) {
-            localStorage.removeItem(STORAGE_KEY);
+            client.publish(MQTT_TOPIC, JSON.stringify({ type: 'CLEAR' }));
+            attendanceRecords = [];
             renderRosterTable();
         }
     }
@@ -706,10 +683,7 @@
         const { jsPDF } = window.jspdf;
         const doc = new jsPDF();
 
-        const records = getRecords();
-        const sorted = [...records].sort((a, b) => {
-            return a.rollNo.localeCompare(b.rollNo, undefined, { numeric: true, sensitivity: 'base' });
-        });
+        const sorted = getSortedRecords();
         const presentCount = sorted.length;
 
         doc.setFontSize(16);
@@ -754,9 +728,6 @@
     function switchView(viewId) {
         document.querySelectorAll('.view-section').forEach(v => v.classList.remove('active'));
         document.getElementById(viewId).classList.add('active');
-        if (viewId === 'teacher-view') {
-            renderRosterTable();
-        }
     }
 
     function logout() {
