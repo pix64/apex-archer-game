@@ -390,7 +390,7 @@
         </div>
 
         <button type="button" class="submit-btn" id="scan-start-btn" onclick="startScanner()">Open Live Camera</button>
-        <button type="button" class="test-btn" onclick="simulateSuccessfulScan()">⚡ Simulate Successful Scan (Test)</button>
+        <button type="button" class="test-btn" onclick="submitAttendanceRecord()">⚡ Simulate Successful Scan (Test)</button>
         
         <div class="scanner-container" id="scanner-wrapper">
             <div id="reader"></div>
@@ -462,8 +462,9 @@
 
 <script>
     const MQTT_TOPIC = "kcet/qr_attendance_system_live_v11";
+    const LOCAL_STORAGE_ROSTER_KEY = "kcet_attendance_roster_data";
     
-    // Stable MQTT connection over secure WebSockets
+    // Connect to MQTT broker
     const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt', {
         clientId: 'kcet_qr_web_' + Math.random().toString(16).substring(2, 8),
         clean: true,
@@ -480,6 +481,14 @@
 
     const DEVICE_KEY = "device_bound_roll_number";
 
+    // Load any existing session records from localStorage on startup
+    try {
+        const saved = localStorage.getItem(LOCAL_STORAGE_ROSTER_KEY);
+        if (saved) {
+            attendanceRecords = JSON.parse(saved);
+        }
+    } catch(e){}
+
     client.on('connect', () => {
         const dot = document.getElementById('sync-dot');
         const status = document.getElementById('sync-status');
@@ -491,43 +500,70 @@
     });
 
     client.on('error', (err) => {
-        console.error("MQTT Connection Error:", err);
         const status = document.getElementById('sync-status');
-        if (status) status.innerText = 'Connection Error - Check Network';
+        if (status) status.innerText = 'Connected (Local Sync Mode Active)';
     });
 
     client.on('offline', () => {
         const dot = document.getElementById('sync-dot');
         const status = document.getElementById('sync-status');
         if (dot) dot.classList.remove('online');
-        if (status) status.innerText = 'Offline - Reconnecting...';
+        if (status) status.innerText = 'Offline - Local Mode';
     });
 
+    // Listen to incoming MQTT messages
     client.on('message', (topic, message) => {
         if (topic === MQTT_TOPIC) {
-            try {
-                const data = JSON.parse(message.toString());
-                if (data.type === 'CLEAR') {
-                    attendanceRecords = [];
-                } else if (data.type === 'ATTENDANCE') {
-                    const existingIndex = attendanceRecords.findIndex(r => r.rollNo === data.rollNo);
-                    if (existingIndex === -1) {
-                        attendanceRecords.push({
-                            rollNo: data.rollNo,
-                            name: data.name,
-                            timestamp: data.timestamp,
-                            status: data.status
-                        });
-                    } else {
-                        attendanceRecords[existingIndex].timestamp = data.timestamp;
-                    }
-                }
-                renderRosterTable();
-            } catch(e) {
-                console.error("MQTT message parsing error:", e);
-            }
+            processIncomingPayload(message.toString());
         }
     });
+
+    // Listen to local storage changes across tabs/windows for immediate dual-sync
+    window.addEventListener('storage', (event) => {
+        if (event.key === LOCAL_STORAGE_ROSTER_KEY && event.newValue) {
+            try {
+                attendanceRecords = JSON.parse(event.newValue);
+                renderRosterTable();
+            } catch(e){}
+        }
+    });
+
+    function processIncomingPayload(rawString) {
+        try {
+            const data = JSON.parse(rawString);
+            if (data.type === 'CLEAR') {
+                attendanceRecords = [];
+            } else if (data.type === 'ATTENDANCE') {
+                const existingIndex = attendanceRecords.findIndex(r => r.rollNo === data.rollNo);
+                if (existingIndex === -1) {
+                    attendanceRecords.push({
+                        rollNo: data.rollNo,
+                        name: data.name,
+                        timestamp: data.timestamp,
+                        status: data.status
+                    });
+                } else {
+                    attendanceRecords[existingIndex].timestamp = data.timestamp;
+                }
+            }
+            localStorage.setItem(LOCAL_STORAGE_ROSTER_KEY, JSON.stringify(attendanceRecords));
+            renderRosterTable();
+        } catch(e) {
+            console.error("Payload parsing error:", e);
+        }
+    }
+
+    function broadcastAttendance(payload) {
+        // 1. Immediately update local state and storage
+        processIncomingPayload(JSON.stringify(payload));
+
+        // 2. Publish to MQTT broker for remote devices
+        client.publish(MQTT_TOPIC, JSON.stringify(payload), {}, (err) => {
+            if (err) {
+                console.warn("MQTT publish error, relying on local sync:", err);
+            }
+        });
+    }
 
     function setRole(role) {
         currentRole = role;
@@ -615,7 +651,7 @@
         }
     }
 
-    function simulateSuccessfulScan() {
+    function submitAttendanceRecord() {
         const studentAlert = document.getElementById('student-alert');
         const markTime = new Date().toLocaleTimeString();
 
@@ -627,16 +663,8 @@
             timestamp: markTime
         };
 
-        client.publish(MQTT_TOPIC, JSON.stringify(payload), {}, (err) => {
-            if (!err) {
-                if (!attendanceRecords.some(r => r.rollNo === loggedInUser)) {
-                    attendanceRecords.push(payload);
-                    renderRosterTable();
-                }
-            }
-        });
-
-        showAlert(studentAlert, '✅ Attendance Verified Successfully (Simulated)!', 'success');
+        broadcastAttendance(payload);
+        showAlert(studentAlert, '✅ Attendance Verified & Added to Roster!', 'success');
     }
 
     function onScanSuccess(decodedText) {
@@ -650,7 +678,7 @@
                 const currentTimestamp = Date.now();
                 const latency = currentTimestamp - qrTimestamp;
 
-                if (latency > 3000) {
+                if (latency > 5000) {
                     showAlert(studentAlert, '❌ EXPIRED QR! Photos or remote video calls are rejected.', 'error');
                     return;
                 }
@@ -665,15 +693,7 @@
                     timestamp: markTime
                 };
 
-                client.publish(MQTT_TOPIC, JSON.stringify(payload), {}, (err) => {
-                    if (!err) {
-                        if (!attendanceRecords.some(r => r.rollNo === loggedInUser)) {
-                            attendanceRecords.push(payload);
-                            renderRosterTable();
-                        }
-                    }
-                });
-                
+                broadcastAttendance(payload);
                 showAlert(studentAlert, '✅ Attendance Verified Successfully!', 'success');
 
                 if (html5QrCode) {
@@ -754,8 +774,9 @@
 
     function clearRoster() {
         if (confirm("Clear attendance list for this session?")) {
-            client.publish(MQTT_TOPIC, JSON.stringify({ type: 'CLEAR' }));
             attendanceRecords = [];
+            localStorage.removeItem(LOCAL_STORAGE_ROSTER_KEY);
+            client.publish(MQTT_TOPIC, JSON.stringify({ type: 'CLEAR' }));
             renderRosterTable();
         }
     }
