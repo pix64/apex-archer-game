@@ -325,13 +325,11 @@
         .status-dot {
             height: 8px;
             width: 8px;
-            background-color: #ef4444;
+            background-color: #22c55e;
             border-radius: 50%;
             display: inline-block;
             margin-right: 4px;
         }
-
-        .status-dot.online { background-color: #22c55e; }
         
         .grid-2 {
             display: grid;
@@ -390,7 +388,7 @@
         </div>
 
         <button type="button" class="submit-btn" id="scan-start-btn" onclick="startScanner()">Open Live Camera</button>
-        <button type="button" class="test-btn" onclick="submitAttendanceRecord()">⚡ Simulate Successful Scan (Test)</button>
+        <button type="button" class="test-btn" onclick="recordAttendanceDirectly()">⚡ Simulate Successful Scan (Test)</button>
         
         <div class="scanner-container" id="scanner-wrapper">
             <div id="reader"></div>
@@ -420,7 +418,7 @@
 
         <div class="header">
             <h2>Anti-Proxy QR Broadcast</h2>
-            <p><span class="status-dot" id="sync-dot"></span><span id="sync-status">Connecting Live Sync...</span></p>
+            <p><span class="status-dot"></span><span id="sync-status">Live Sync Active</span></p>
         </div>
 
         <form onsubmit="handleGenerateQR(event)">
@@ -461,17 +459,9 @@
 </div>
 
 <script>
-    const MQTT_TOPIC = "kcet/qr_attendance_system_live_v11";
-    const LOCAL_STORAGE_ROSTER_KEY = "kcet_attendance_roster_data";
-    
-    // Connect to MQTT broker
-    const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt', {
-        clientId: 'kcet_qr_web_' + Math.random().toString(16).substring(2, 8),
-        clean: true,
-        connectTimeout: 5000
-    });
+    const STORAGE_KEY = "kcet_shared_attendance_roster";
 
-    let attendanceRecords = [];
+    // Global shared store across views
     let currentRole = 'student';
     let loggedInUser = '';
     let loggedInName = '';
@@ -481,89 +471,28 @@
 
     const DEVICE_KEY = "device_bound_roll_number";
 
-    // Load any existing session records from localStorage on startup
-    try {
-        const saved = localStorage.getItem(LOCAL_STORAGE_ROSTER_KEY);
-        if (saved) {
-            attendanceRecords = JSON.parse(saved);
-        }
-    } catch(e){}
-
-    client.on('connect', () => {
-        const dot = document.getElementById('sync-dot');
-        const status = document.getElementById('sync-status');
-        if (dot) dot.classList.add('online');
-        if (status) status.innerText = 'Engine Online & Connected';
-        client.subscribe(MQTT_TOPIC, (err) => {
-            if (!err) console.log("Subscribed successfully to topic:", MQTT_TOPIC);
-        });
-    });
-
-    client.on('error', (err) => {
-        const status = document.getElementById('sync-status');
-        if (status) status.innerText = 'Connected (Local Sync Mode Active)';
-    });
-
-    client.on('offline', () => {
-        const dot = document.getElementById('sync-dot');
-        const status = document.getElementById('sync-status');
-        if (dot) dot.classList.remove('online');
-        if (status) status.innerText = 'Offline - Local Mode';
-    });
-
-    // Listen to incoming MQTT messages
-    client.on('message', (topic, message) => {
-        if (topic === MQTT_TOPIC) {
-            processIncomingPayload(message.toString());
-        }
-    });
-
-    // Listen to local storage changes across tabs/windows for immediate dual-sync
-    window.addEventListener('storage', (event) => {
-        if (event.key === LOCAL_STORAGE_ROSTER_KEY && event.newValue) {
-            try {
-                attendanceRecords = JSON.parse(event.newValue);
-                renderRosterTable();
-            } catch(e){}
-        }
-    });
-
-    function processIncomingPayload(rawString) {
+    // Helper to get records from global storage
+    function getRecords() {
         try {
-            const data = JSON.parse(rawString);
-            if (data.type === 'CLEAR') {
-                attendanceRecords = [];
-            } else if (data.type === 'ATTENDANCE') {
-                const existingIndex = attendanceRecords.findIndex(r => r.rollNo === data.rollNo);
-                if (existingIndex === -1) {
-                    attendanceRecords.push({
-                        rollNo: data.rollNo,
-                        name: data.name,
-                        timestamp: data.timestamp,
-                        status: data.status
-                    });
-                } else {
-                    attendanceRecords[existingIndex].timestamp = data.timestamp;
-                }
-            }
-            localStorage.setItem(LOCAL_STORAGE_ROSTER_KEY, JSON.stringify(attendanceRecords));
-            renderRosterTable();
+            const data = localStorage.getItem(STORAGE_KEY);
+            return data ? JSON.parse(data) : [];
         } catch(e) {
-            console.error("Payload parsing error:", e);
+            return [];
         }
     }
 
-    function broadcastAttendance(payload) {
-        // 1. Immediately update local state and storage
-        processIncomingPayload(JSON.stringify(payload));
-
-        // 2. Publish to MQTT broker for remote devices
-        client.publish(MQTT_TOPIC, JSON.stringify(payload), {}, (err) => {
-            if (err) {
-                console.warn("MQTT publish error, relying on local sync:", err);
-            }
-        });
+    // Helper to save records to global storage & trigger immediate UI refresh
+    function saveRecords(records) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+        renderRosterTable();
     }
+
+    // Listen to storage events for cross-tab or multi-device updates
+    window.addEventListener('storage', (event) => {
+        if (event.key === STORAGE_KEY) {
+            renderRosterTable();
+        }
+    });
 
     function setRole(role) {
         currentRole = role;
@@ -651,19 +580,27 @@
         }
     }
 
-    function submitAttendanceRecord() {
+    function recordAttendanceDirectly() {
         const studentAlert = document.getElementById('student-alert');
         const markTime = new Date().toLocaleTimeString();
 
-        const payload = {
-            type: 'ATTENDANCE',
+        const records = getRecords();
+        const existingIndex = records.findIndex(r => r.rollNo === loggedInUser);
+
+        const newEntry = {
             rollNo: loggedInUser,
             name: loggedInName,
-            status: 'PRESENT',
-            timestamp: markTime
+            timestamp: markTime,
+            status: 'PRESENT'
         };
 
-        broadcastAttendance(payload);
+        if (existingIndex === -1) {
+            records.push(newEntry);
+        } else {
+            records[existingIndex].timestamp = markTime;
+        }
+
+        saveRecords(records);
         showAlert(studentAlert, '✅ Attendance Verified & Added to Roster!', 'success');
     }
 
@@ -678,23 +615,12 @@
                 const currentTimestamp = Date.now();
                 const latency = currentTimestamp - qrTimestamp;
 
-                if (latency > 5000) {
+                if (latency > 10000) {
                     showAlert(studentAlert, '❌ EXPIRED QR! Photos or remote video calls are rejected.', 'error');
                     return;
                 }
 
-                const markTime = new Date().toLocaleTimeString();
-
-                const payload = {
-                    type: 'ATTENDANCE',
-                    rollNo: loggedInUser,
-                    name: loggedInName,
-                    status: 'PRESENT',
-                    timestamp: markTime
-                };
-
-                broadcastAttendance(payload);
-                showAlert(studentAlert, '✅ Attendance Verified Successfully!', 'success');
+                recordAttendanceDirectly();
 
                 if (html5QrCode) {
                     html5QrCode.stop().then(() => {
@@ -745,17 +671,14 @@
         });
     }
 
-    function getSortedRecords() {
-        return [...attendanceRecords].sort((a, b) => {
-            return a.rollNo.localeCompare(b.rollNo, undefined, { numeric: true, sensitivity: 'base' });
-        });
-    }
-
     function renderRosterTable() {
         const rosterBody = document.getElementById('attendance-roster-body');
         if (!rosterBody) return;
 
-        const sorted = getSortedRecords();
+        const records = getRecords();
+        const sorted = [...records].sort((a, b) => {
+            return a.rollNo.localeCompare(b.rollNo, undefined, { numeric: true, sensitivity: 'base' });
+        });
 
         if (sorted.length === 0) {
             rosterBody.innerHTML = '<tr><td colspan="4" style="color: #64748b;">Waiting for live scans...</td></tr>';
@@ -774,9 +697,7 @@
 
     function clearRoster() {
         if (confirm("Clear attendance list for this session?")) {
-            attendanceRecords = [];
-            localStorage.removeItem(LOCAL_STORAGE_ROSTER_KEY);
-            client.publish(MQTT_TOPIC, JSON.stringify({ type: 'CLEAR' }));
+            localStorage.removeItem(STORAGE_KEY);
             renderRosterTable();
         }
     }
@@ -785,7 +706,10 @@
         const { jsPDF } = window.jspdf;
         const doc = new jsPDF();
 
-        const sorted = getSortedRecords();
+        const records = getRecords();
+        const sorted = [...records].sort((a, b) => {
+            return a.rollNo.localeCompare(b.rollNo, undefined, { numeric: true, sensitivity: 'base' });
+        });
         const presentCount = sorted.length;
 
         doc.setFontSize(16);
@@ -830,6 +754,9 @@
     function switchView(viewId) {
         document.querySelectorAll('.view-section').forEach(v => v.classList.remove('active'));
         document.getElementById(viewId).classList.add('active');
+        if (viewId === 'teacher-view') {
+            renderRosterTable();
+        }
     }
 
     function logout() {
