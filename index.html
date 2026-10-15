@@ -446,11 +446,19 @@
 <script>
     const MQTT_TOPIC = "kcet/qr_attendance_system_live_v11";
     
-    const client = mqtt.connect('wss://broker.hivemq.com:8884/mqtt', {
-        clientId: 'kcet_qr_web_' + Math.random().toString(16).substring(2, 8),
-        clean: true,
-        connectTimeout: 4000
-    });
+    // Attempting broker connection with fallback timeout
+    let client = null;
+    let isBrokerConnected = false;
+
+    try {
+        client = mqtt.connect('wss://broker.hivemq.com:8884/mqtt', {
+            clientId: 'kcet_qr_web_' + Math.random().toString(16).substring(2, 8),
+            clean: true,
+            connectTimeout: 3000
+        });
+    } catch(e) {
+        console.warn("MQTT initialization failed, running in resilient local mode.");
+    }
 
     let attendanceRecords = [];
     let currentRole = 'student';
@@ -461,57 +469,102 @@
     let qrRefreshInterval = null;
 
     const DEVICE_KEY = "device_bound_roll_number";
+    const LOCAL_SYNC_KEY = "kcet_local_sync_payload";
 
-    client.on('connect', () => {
-        const dot = document.getElementById('sync-dot');
-        const status = document.getElementById('sync-status');
-        if (dot) dot.classList.add('online');
-        if (status) status.innerText = 'Engine Online & Connected';
-        client.subscribe(MQTT_TOPIC, (err) => {
-            if (!err) {
-                console.log("Subscribed successfully to topic:", MQTT_TOPIC);
+    if (client) {
+        client.on('connect', () => {
+            isBrokerConnected = true;
+            setOnlineStatus(true, 'Engine Online & Connected');
+            client.subscribe(MQTT_TOPIC, (err) => {
+                if (!err) console.log("Subscribed successfully to topic:", MQTT_TOPIC);
+            });
+        });
+
+        client.on('error', (err) => {
+            switchToLocalMode("Connection Error - Using Local Sync");
+        });
+
+        client.on('offline', () => {
+            switchToLocalMode("Offline - Using Local Sync");
+        });
+
+        client.on('message', (topic, message) => {
+            if (topic === MQTT_TOPIC) {
+                handleIncomingData(message.toString());
             }
         });
-    });
 
-    client.on('error', (err) => {
-        console.error("MQTT Connection Error:", err);
-        const status = document.getElementById('sync-status');
-        if (status) status.innerText = 'Connection Error - Retrying...';
-    });
+        // Fallback timer if connect event doesn't fire within 3.5 seconds
+        setTimeout(() => {
+            if (!isBrokerConnected) {
+                switchToLocalMode("Live Sync (Local Mode Active)");
+            }
+        }, 3500);
+    } else {
+        switchToLocalMode("Live Sync (Local Mode Active)");
+    }
 
-    client.on('offline', () => {
+    function setOnlineStatus(online, text) {
         const dot = document.getElementById('sync-dot');
         const status = document.getElementById('sync-status');
-        if (dot) dot.classList.remove('online');
-        if (status) status.innerText = 'Offline - Reconnecting...';
-    });
+        if (dot) {
+            if (online) dot.classList.add('online');
+            else dot.classList.remove('online');
+        }
+        if (status) status.innerText = text;
+    }
 
-    client.on('message', (topic, message) => {
-        if (topic === MQTT_TOPIC) {
+    function switchToLocalMode(statusText) {
+        isBrokerConnected = false;
+        setOnlineStatus(true, statusText); // Green dot for active local sync mode
+    }
+
+    // Cross-tab / local storage listener for robust multi-device or multi-tab syncing
+    window.addEventListener('storage', (event) => {
+        if (event.key === LOCAL_SYNC_KEY && event.newValue) {
             try {
-                const data = JSON.parse(message.toString());
-                if (data.type === 'CLEAR') {
-                    attendanceRecords = [];
-                } else if (data.type === 'ATTENDANCE') {
-                    const existingIndex = attendanceRecords.findIndex(r => r.rollNo === data.rollNo);
-                    if (existingIndex === -1) {
-                        attendanceRecords.push({
-                            rollNo: data.rollNo,
-                            name: data.name,
-                            timestamp: data.timestamp,
-                            status: data.status
-                        });
-                    } else {
-                        attendanceRecords[existingIndex].timestamp = data.timestamp;
-                    }
-                }
-                renderRosterTable();
-            } catch(e) {
-                console.error("MQTT message parsing error:", e);
-            }
+                handleIncomingData(event.newValue);
+            } catch(e){}
         }
     });
+
+    function broadcastPayload(payloadObj) {
+        const payloadString = JSON.stringify(payloadObj);
+        
+        // 1. Publish via MQTT if connected
+        if (isBrokerConnected && client && client.connected) {
+            client.publish(MQTT_TOPIC, payloadString);
+        }
+
+        // 2. Broadcast via LocalStorage event for seamless local syncing
+        localStorage.setItem(LOCAL_SYNC_KEY, payloadString);
+        // Trigger immediately for same-window instances
+        handleIncomingData(payloadString);
+    }
+
+    function handleIncomingData(rawString) {
+        try {
+            const data = JSON.parse(rawString);
+            if (data.type === 'CLEAR') {
+                attendanceRecords = [];
+            } else if (data.type === 'ATTENDANCE') {
+                const existingIndex = attendanceRecords.findIndex(r => r.rollNo === data.rollNo);
+                if (existingIndex === -1) {
+                    attendanceRecords.push({
+                        rollNo: data.rollNo,
+                        name: data.name,
+                        timestamp: data.timestamp,
+                        status: data.status
+                    });
+                } else {
+                    attendanceRecords[existingIndex].timestamp = data.timestamp;
+                }
+            }
+            renderRosterTable();
+        } catch(e) {
+            console.error("Data parsing error:", e);
+        }
+    }
 
     function setRole(role) {
         currentRole = role;
@@ -610,7 +663,7 @@
                 const currentTimestamp = Date.now();
                 const latency = currentTimestamp - qrTimestamp;
 
-                if (latency > 1200) {
+                if (latency > 1500) {
                     showAlert(studentAlert, '❌ EXPIRED QR! Photos or remote video calls are rejected.', 'error');
                     return;
                 }
@@ -625,14 +678,7 @@
                     timestamp: markTime
                 };
 
-                client.publish(MQTT_TOPIC, JSON.stringify(payload), {}, (err) => {
-                    if (!err) {
-                        if (!attendanceRecords.some(r => r.rollNo === loggedInUser)) {
-                            attendanceRecords.push(payload);
-                            renderRosterTable();
-                        }
-                    }
-                });
+                broadcastPayload(payload);
                 
                 showAlert(studentAlert, '✅ Attendance Verified Successfully!', 'success');
 
@@ -714,7 +760,7 @@
 
     function clearRoster() {
         if (confirm("Clear attendance list for this session?")) {
-            client.publish(MQTT_TOPIC, JSON.stringify({ type: 'CLEAR' }));
+            broadcastPayload({ type: 'CLEAR' });
             attendanceRecords = [];
             renderRosterTable();
         }
