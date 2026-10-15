@@ -418,7 +418,13 @@
 
 <script>
     const MQTT_TOPIC = "kcet/qr_attendance_system_live_v11";
-    const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
+    
+    // Connected to a robust public WebSocket broker with client options
+    const client = mqtt.connect('wss://broker.hivemq.com:8884/mqtt', {
+        clientId: 'kcet_qr_web_' + Math.random().toString(16.substring(2, 8)),
+        clean: true,
+        connectTimeout: 4000
+    });
 
     let attendanceRecords = [];
     let currentRole = 'student';
@@ -442,6 +448,19 @@
         });
     });
 
+    client.on('error', (err) => {
+        console.error("MQTT Connection Error:", err);
+        const status = document.getElementById('sync-status');
+        if (status) status.innerText = 'Connection Error - Retrying...';
+    });
+
+    client.on('offline', () => {
+        const dot = document.getElementById('sync-dot');
+        const status = document.getElementById('sync-status');
+        if (dot) dot.classList.remove('online');
+        if (status) status.innerText = 'Offline - Reconnecting...';
+    });
+
     client.on('message', (topic, message) => {
         if (topic === MQTT_TOPIC) {
             try {
@@ -449,7 +468,6 @@
                 if (data.type === 'CLEAR') {
                     attendanceRecords = [];
                 } else if (data.type === 'ATTENDANCE') {
-                    // Prevent duplicate entries for the same student roll number
                     const existingIndex = attendanceRecords.findIndex(r => r.rollNo === data.rollNo);
                     if (existingIndex === -1) {
                         attendanceRecords.push({
@@ -459,7 +477,6 @@
                             status: data.status
                         });
                     } else {
-                        // Update existing entry if needed
                         attendanceRecords[existingIndex].timestamp = data.timestamp;
                     }
                 }
@@ -582,10 +599,8 @@
                     timestamp: markTime
                 };
 
-                // Publish to MQTT broker
                 client.publish(MQTT_TOPIC, JSON.stringify(payload), {}, (err) => {
                     if (!err) {
-                        // Also update teacher roster immediately locally if testing on same machine/browser instance
                         if (!attendanceRecords.some(r => r.rollNo === loggedInUser)) {
                             attendanceRecords.push(payload);
                             renderRosterTable();
